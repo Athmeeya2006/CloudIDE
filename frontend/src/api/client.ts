@@ -1,0 +1,78 @@
+import axios from 'axios';
+
+export const WS_BASE = import.meta.env.VITE_WS_URL || ((window.location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + window.location.host);
+const BASE = import.meta.env.VITE_API_URL || '';
+
+export const api = axios.create({
+  baseURL: BASE,
+  timeout: 15000,
+});
+
+// ---- Files ----
+export const filesApi = {
+  tree: (workspace = 'default') =>
+    api.get('/api/files/tree', { params: { workspace } }).then(r => r.data),
+
+  read: (path: string) =>
+    api.get('/api/files/read', { params: { path } }).then(r => r.data),
+
+  write: (path: string, content: string) =>
+    api.post('/api/files/write', { path, content }).then(r => r.data),
+
+  create: (path: string, is_dir = false) =>
+    api.post('/api/files/create', { path, is_dir }).then(r => r.data),
+
+  rename: (old_path: string, new_path: string) =>
+    api.post('/api/files/rename', { old_path, new_path }).then(r => r.data),
+
+  delete: (path: string) =>
+    api.delete('/api/files/delete', { params: { path } }).then(r => r.data),
+
+  search: (query: string, workspace = 'default') =>
+    api.get('/api/files/search', { params: { query, workspace } }).then(r => r.data),
+};
+
+// ---- Processes ----
+export const processApi = {
+  list: () => api.get('/api/processes/').then(r => r.data),
+
+  create: (command: string, cwd: string, name?: string, env?: Record<string, string>) =>
+    api.post('/api/processes/', { command, cwd, name, env }).then(r => r.data),
+
+  stop: (id: string) => api.post(`/api/processes/${id}/stop`).then(r => r.data),
+  restart: (id: string) => api.post(`/api/processes/${id}/restart`).then(r => r.data),
+  remove: (id: string) => api.delete(`/api/processes/${id}`).then(r => r.data),
+};
+
+// ---- Database ----
+export const dbApi = {
+  listDatabases: (workspace = 'default') =>
+    api.get('/api/database/list', { params: { workspace } }).then(r => r.data),
+
+  listTables: (db_path: string) =>
+    api.get('/api/database/tables', { params: { db_path } }).then(r => r.data),
+
+  schema: (db_path: string, table: string) =>
+    api.get('/api/database/schema', { params: { db_path, table } }).then(r => r.data),
+
+  rows: (db_path: string, table: string, limit = 100, offset = 0) =>
+    api.get('/api/database/rows', { params: { db_path, table, limit, offset } }).then(r => r.data),
+
+  query: (db_path: string, sql: string) =>
+    api.post('/api/database/query', { db_path, sql }).then(r => r.data),
+};
+
+// ---- Git ----
+export const gitApi = {
+  clone: (url: string, workspace = 'default', folder?: string) =>
+    api.post('/api/git/clone', { url, workspace, folder }).then(r => r.data),
+
+  status: (workspace = 'default', folder = '') =>
+    api.get('/api/git/status', { params: { workspace, folder } }).then(r => r.data),
+
+  commit: (message: string, workspace = 'default', folder = '', add_all = true) =>
+    api.post('/api/git/commit', { message, workspace, folder, add_all }).then(r => r.data),
+
+  log: (workspace = 'default', folder = '') =>
+    api.get('/api/git/log', { params: { workspace, folder } }).then(r => r.data),
+};
