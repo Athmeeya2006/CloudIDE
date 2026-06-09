@@ -54,3 +54,5 @@ workspaces/
 # Logs
 *.log
 logs/
+.vercel
+.env*
