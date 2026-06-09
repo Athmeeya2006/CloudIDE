@@ -54,7 +54,7 @@ export function TerminalPanel() {
     fitAddonRef.current = fitAddon;
 
     // Open WS connection
-    const wsUrl = `${WS_BASE.replace('http', 'ws')}/api/terminal/ws/${sessionId}?cwd=/home/athmeeya/CloudIDE/workspaces/${workspace}`;
+    const wsUrl = `${WS_BASE.replace('http', 'ws')}/api/terminal/ws/${sessionId}?cwd=${workspace}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 

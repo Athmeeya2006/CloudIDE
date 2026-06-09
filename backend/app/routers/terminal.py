@@ -10,10 +10,11 @@ import json
 import logging
 import shutil
 from typing import Dict
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from pathlib import Path
 
 from app.config import settings
+from app.routers.processes import resolve_workspace_cwd
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/terminal", tags=["terminal"])
@@ -121,13 +122,12 @@ manager = TerminalManager()
 async def terminal_ws(websocket: WebSocket, session_id: str):
     await websocket.accept()
 
-    cwd = websocket.query_params.get("cwd", str(settings.workspace_path / "default"))
-    base = str(settings.workspace_path.resolve())
-    cwd_resolved = str(Path(cwd).resolve())
-    if not cwd_resolved.startswith(base):
-        await websocket.close(code=4003, reason="Invalid workspace path")
+    cwd_param = websocket.query_params.get("cwd", "default")
+    try:
+        cwd = str(resolve_workspace_cwd(cwd_param))
+    except HTTPException as e:
+        await websocket.close(code=4003, reason=e.detail)
         return
-    cwd = cwd_resolved
 
     os.makedirs(cwd, exist_ok=True)
 

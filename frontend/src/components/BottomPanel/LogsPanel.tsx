@@ -67,7 +67,7 @@ export function LogsPanel() {
     if (!cmdInput.trim()) return;
 
     const name = nameInput.trim() || cmdInput.trim().substring(0, 30);
-    const cwd = `/home/athmeeya/CloudIDE/workspaces/${workspace}`;
+    const cwd = workspace;
 
     try {
       const proc = await runCommand(cmdInput, cwd, name);

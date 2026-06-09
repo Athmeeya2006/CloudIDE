@@ -3,6 +3,7 @@ import os
 import subprocess
 import uuid
 import logging
+from pathlib import Path
 from typing import Dict, List, Optional
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, field_validator
@@ -10,6 +11,30 @@ from app.config import settings
 
 router = APIRouter(prefix="/api/processes", tags=["processes"])
 logger = logging.getLogger(__name__)
+
+
+def resolve_workspace_cwd(cwd_param: str) -> Path:
+    clean = cwd_param.replace('\x00', '').strip()
+    
+    # Strip well-known absolute prefixes to convert to a relative path
+    for prefix in [
+        "/home/athmeeya/CloudIDE/workspaces",
+        "/workspaces",
+    ]:
+        if clean.startswith(prefix):
+            clean = clean[len(prefix):].lstrip('/')
+            break
+            
+    base = settings.workspace_path.resolve()
+    resolved = (base / clean).resolve()
+    
+    # Verify resolving didn't escape settings.workspace_path
+    try:
+        resolved.relative_to(base)
+    except ValueError:
+        raise HTTPException(403, "Access denied")
+        
+    return resolved
 
 
 class ProcessCreate(BaseModel):
@@ -164,7 +189,10 @@ proc_mgr = ProcessManager()
 
 @router.post("/")
 async def create_process(body: ProcessCreate):
-    p = proc_mgr.create(body.command, body.name or body.command[:40], body.cwd)
+    resolved_cwd = resolve_workspace_cwd(body.cwd)
+    if not resolved_cwd.exists() or not resolved_cwd.is_dir():
+        raise HTTPException(404, f"Directory not found: {body.cwd}")
+    p = proc_mgr.create(body.command, body.name or body.command[:40], str(resolved_cwd))
     await p.start(body.env)
     return p.to_dict()
 

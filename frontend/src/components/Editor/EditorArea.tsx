@@ -16,7 +16,7 @@ export function EditorArea() {
     try {
       await runCommand(
         'python manage.py runserver 0.0.0.0:8001',
-        `/workspaces/${workspace}`,
+        workspace,
         'Django Dev Server',
       );
       notify('Server started on port 8001', 'success');

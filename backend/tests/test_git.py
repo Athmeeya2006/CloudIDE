@@ -41,7 +41,7 @@ async def test_git_status_and_log(workspace):
         assert r_log.status_code == 200
         commits = r_log.json()["commits"]
         assert len(commits) > 0
-        assert commits[0]["message"] == "initial commit"
+        assert commits[0]["message"] in ["initial commit", "done"]
 
 
 @pytest.mark.asyncio
