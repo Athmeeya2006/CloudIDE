@@ -12,11 +12,7 @@ async def test_health():
 
 
 @pytest.mark.asyncio
-async def test_file_tree(tmp_path, monkeypatch):
-    monkeypatch.setenv("WORKSPACE_BASE", str(tmp_path))
-    from app import config
-    config.settings = config.Settings()
-
+async def test_file_tree():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         r = await ac.get("/api/files/tree", params={"workspace": "default"})
     assert r.status_code == 200

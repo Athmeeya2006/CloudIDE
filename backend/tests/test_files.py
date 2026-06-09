@@ -3,16 +3,8 @@ from httpx import AsyncClient, ASGITransport
 from app.main import app
 
 
-@pytest.fixture
-def workspace(tmp_path, monkeypatch):
-    monkeypatch.setenv("WORKSPACE_BASE", str(tmp_path))
-    from app import config
-    config.settings = config.Settings()
-    return tmp_path
-
-
 @pytest.mark.asyncio
-async def test_write_and_read(workspace):
+async def test_write_and_read():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         # Write
         r = await ac.post("/api/files/write", json={
@@ -28,7 +20,7 @@ async def test_write_and_read(workspace):
 
 
 @pytest.mark.asyncio
-async def test_delete_file(workspace):
+async def test_delete_file():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         await ac.post("/api/files/write", json={"path": "default/todelete.txt", "content": "x"})
         r = await ac.delete("/api/files/delete", params={"path": "default/todelete.txt"})

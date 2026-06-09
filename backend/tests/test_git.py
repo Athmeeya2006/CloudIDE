@@ -5,12 +5,8 @@ from app.main import app
 
 
 @pytest.fixture
-def workspace(tmp_path, monkeypatch):
-    monkeypatch.setenv("WORKSPACE_BASE", str(tmp_path))
-    from app import config
-    config.settings = config.Settings()
-    
-    # Create default workspace dir and initialize a dummy git repo
+def git_repo(tmp_path):
+    # Initialize a dummy git repo inside default workspace dir
     default_ws = tmp_path / "default"
     default_ws.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init"], cwd=str(default_ws), capture_output=True)
@@ -27,7 +23,7 @@ def workspace(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_git_status_and_log(workspace):
+async def test_git_status_and_log(git_repo):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         # Status
         r = await ac.get("/api/git/status", params={"workspace": "default"})
@@ -45,7 +41,7 @@ async def test_git_status_and_log(workspace):
 
 
 @pytest.mark.asyncio
-async def test_git_path_traversal_blocked(workspace):
+async def test_git_path_traversal_blocked(git_repo):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         # Traversal in workspace name
         r1 = await ac.get("/api/git/status", params={"workspace": "../default"})
