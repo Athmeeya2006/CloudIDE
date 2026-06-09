@@ -12,10 +12,33 @@ router = APIRouter(prefix="/api/git", tags=["git"])
 logger = logging.getLogger(__name__)
 
 
-def ws_path(workspace: str) -> Path:
-    p = settings.workspace_path / workspace
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+def resolve_git_dir(workspace: str, folder: str = "") -> Path:
+    # Ensure workspace base exists
+    base = (settings.workspace_path / workspace.replace('\x00', '')).resolve()
+    # Ensure workspace doesn't escape settings.workspace_path
+    try:
+        base.relative_to(settings.workspace_path.resolve())
+    except ValueError:
+        raise HTTPException(403, "Access denied")
+
+    # Clean the folder path
+    clean_folder = folder.replace('\x00', '').lstrip('/')
+    if '..' in clean_folder.split('/') or '..' in workspace.replace('\x00', '').split('/'):
+        raise HTTPException(403, "Access denied")
+
+    resolved = (base / clean_folder).resolve()
+    try:
+        resolved.relative_to(base)
+    except ValueError:
+        raise HTTPException(403, "Access denied")
+
+    # Ensure the directory actually exists (git operations must run in existing folders)
+    if not resolved.exists():
+        raise HTTPException(404, f"Directory not found: {folder}")
+    if not resolved.is_dir():
+        raise HTTPException(400, f"Path is not a directory: {folder}")
+
+    return resolved
 
 
 async def run_git(args: list[str], cwd: str, timeout: int = 60) -> dict:
@@ -51,11 +74,31 @@ class CloneBody(BaseModel):
 
 @router.post("/clone")
 async def clone(body: CloneBody):
-    base = ws_path(body.workspace)
-    folder = body.folder or body.url.split("/")[-1].removesuffix(".git")
-    dest = base / folder
+    # For clone, the workspace base must exist, but the destination folder will be created.
+    # So resolve the parent/base first.
+    base = (settings.workspace_path / body.workspace.replace('\x00', '')).resolve()
+    try:
+        base.relative_to(settings.workspace_path.resolve())
+    except ValueError:
+        raise HTTPException(403, "Access denied")
+
+    # Check folder path safety
+    clean_folder = (body.folder or "").replace('\x00', '').lstrip('/')
+    if '..' in clean_folder.split('/') or '..' in body.workspace.replace('\x00', '').split('/'):
+        raise HTTPException(403, "Access denied")
+
+    folder = clean_folder or body.url.split("/")[-1].removesuffix(".git")
+    dest = (base / folder).resolve()
+
+    try:
+        dest.relative_to(base)
+    except ValueError:
+        raise HTTPException(403, "Access denied")
+
     if dest.exists():
         raise HTTPException(400, f"Folder '{folder}' already exists")
+
+    # Run clone inside base
     result = await run_git(["clone", body.url, str(dest)], str(base))
     if not result["ok"]:
         raise HTTPException(400, result["stderr"])
@@ -64,7 +107,7 @@ async def clone(body: CloneBody):
 
 @router.get("/status")
 async def git_status(workspace: str = "default", folder: str = ""):
-    cwd = str(ws_path(workspace) / folder)
+    cwd = str(resolve_git_dir(workspace, folder))
     result = await run_git(["status", "--porcelain", "-u"], cwd)
     if not result["ok"]:
         raise HTTPException(400, result["stderr"])
@@ -91,7 +134,7 @@ class CommitBody(BaseModel):
 
 @router.post("/commit")
 async def commit(body: CommitBody):
-    cwd = str(ws_path(body.workspace) / body.folder)
+    cwd = str(resolve_git_dir(body.workspace, body.folder))
     if body.add_all:
         await run_git(["add", "-A"], cwd)
     result = await run_git(["commit", "-m", body.message], cwd)
@@ -102,7 +145,7 @@ async def commit(body: CommitBody):
 
 @router.get("/log")
 async def git_log(workspace: str = "default", folder: str = "", limit: int = 20):
-    cwd = str(ws_path(workspace) / folder)
+    cwd = str(resolve_git_dir(workspace, folder))
     result = await run_git(
         ["log", f"--max-count={limit}", "--pretty=format:%H|%an|%ae|%ai|%s"],
         cwd,
