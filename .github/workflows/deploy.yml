@@ -17,7 +17,7 @@ jobs:
       - name: Deploy
         run: |
           cd backend
-          railway deploy --service cloud-ide-backend
+          railway up --ci
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
