@@ -134,7 +134,6 @@ const EDITOR_OPTIONS: MonacoType.editor.IStandaloneEditorConstructionOptions = {
   accessibilitySupport: 'auto',
   mouseWheelZoom: true,
   stickyScroll: { enabled: true, maxLineCount: 5 },
-  lightbulb: { enabled: 'on' as any },
   scrollbar: {
     useShadows: false,
     verticalScrollbarSize: 10,
@@ -205,8 +204,8 @@ export function MonacoEditor() {
 
     // Ctrl/Cmd+S to save
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      const path = useFileStore.getState().activeTabPath;
-      if (path) saveFile(path);
+      const { activeTabPath: activePath, saveFile: saveActive } = useFileStore.getState();
+      if (activePath) saveActive(activePath);
     });
 
     // Restore or create model for the current tab

@@ -15,9 +15,12 @@ export function LogsPanel() {
   const logContainerRef = useRef<HTMLDivElement>(null);
   const activeWsRef = useRef<WebSocket | null>(null);
 
-  // Fetch running processes on mount
+  // Fetch running processes on mount & clean up websocket
   useEffect(() => {
     fetchProcesses();
+    return () => {
+      activeWsRef.current?.close();
+    };
   }, []);
 
   const activeProcess = processes.find(p => p.id === activeProcessId);

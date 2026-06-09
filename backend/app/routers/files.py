@@ -12,10 +12,17 @@ router = APIRouter(prefix="/api/files", tags=["files"])
 
 
 def resolve(path: str) -> Path:
-    """Resolve a workspace-relative path and guard against traversal."""
     base = settings.workspace_path.resolve()
-    resolved = (base / path.lstrip("/")).resolve()
-    if not str(resolved).startswith(str(base)):
+    # Strip any null bytes and normalize
+    clean = path.replace('\x00', '').lstrip('/')
+    # Block obvious traversal attempts early
+    if '..' in clean.split('/'):
+        raise HTTPException(403, "Access denied")
+    resolved = (base / clean).resolve()
+    # Final check after resolving symlinks
+    try:
+        resolved.relative_to(base)
+    except ValueError:
         raise HTTPException(403, "Access denied")
     return resolved
 
@@ -57,7 +64,7 @@ async def write_file(body: WriteBody):
     full.parent.mkdir(parents=True, exist_ok=True)
     async with aiofiles.open(full, "w", encoding="utf-8") as f:
         await f.write(body.content)
-    return {"status": "saved", "path": body.path}
+    return {"status": "saved", "path": body.path, "size": len(body.content.encode())}
 
 
 @router.get("/read")

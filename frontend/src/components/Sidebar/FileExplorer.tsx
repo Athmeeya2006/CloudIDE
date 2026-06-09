@@ -159,12 +159,16 @@ function TreeNode({ node, depth, expanded, renaming, renameRef, onToggle, onRena
               <ContextMenu.Separator className="my-1 h-px bg-ide-border" />
             </>
           )}
-          <ContextMenu.Item className="flex items-center gap-2 px-3 py-1.5 text-[13px] text-ide-text hover:bg-ide-selected cursor-pointer outline-none" onClick={() => onRenameStart(node.path)}>
-            <Edit3 size={13} /> Rename
-          </ContextMenu.Item>
-          <ContextMenu.Item className="flex items-center gap-2 px-3 py-1.5 text-[13px] text-ide-red hover:bg-ide-selected cursor-pointer outline-none" onClick={handleDelete}>
-            <Trash2 size={13} /> Delete
-          </ContextMenu.Item>
+          {depth > 0 && (
+            <>
+              <ContextMenu.Item className="flex items-center gap-2 px-3 py-1.5 text-[13px] text-ide-text hover:bg-ide-selected cursor-pointer outline-none" onClick={() => onRenameStart(node.path)}>
+                <Edit3 size={13} /> Rename
+              </ContextMenu.Item>
+              <ContextMenu.Item className="flex items-center gap-2 px-3 py-1.5 text-[13px] text-ide-red hover:bg-ide-selected cursor-pointer outline-none" onClick={handleDelete}>
+                <Trash2 size={13} /> Delete
+              </ContextMenu.Item>
+            </>
+          )}
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>

@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import re
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException
@@ -8,6 +9,13 @@ from pydantic import BaseModel
 from app.config import settings
 
 router = APIRouter(prefix="/api/database", tags=["database"])
+
+
+def validate_table_name(name: str) -> str:
+    """Allow only safe SQLite identifier characters."""
+    if not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', name):
+        raise HTTPException(400, f"Invalid table name: {name!r}")
+    return name
 
 
 def resolve_db(db_path: str) -> Path:
@@ -42,46 +50,57 @@ async def list_databases(workspace: str = "default"):
 
 @router.get("/tables")
 async def list_tables(db_path: str):
+    conn = None
     try:
         conn = get_conn(db_path)
         cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         tables = [row[0] for row in cur.fetchall()]
-        conn.close()
         return {"tables": tables}
     except sqlite3.Error as e:
         raise HTTPException(400, str(e))
+    finally:
+        if conn:
+            conn.close()
 
 
 @router.get("/schema")
 async def table_schema(db_path: str, table: str):
+    table = validate_table_name(table)
+    conn = None
     try:
         conn = get_conn(db_path)
-        cur = conn.execute(f"PRAGMA table_info({table})")
+        cur = conn.execute(f"PRAGMA table_info(\"{table}\")")
         cols = [dict(row) for row in cur.fetchall()]
-        cur2 = conn.execute(f"PRAGMA index_list({table})")
+        cur2 = conn.execute(f"PRAGMA index_list(\"{table}\")")
         indexes = [dict(row) for row in cur2.fetchall()]
-        cur3 = conn.execute(f"SELECT COUNT(*) as cnt FROM {table}")
+        cur3 = conn.execute(f"SELECT COUNT(*) as cnt FROM \"{table}\"")
         count = cur3.fetchone()[0]
-        conn.close()
         return {"columns": cols, "indexes": indexes, "row_count": count}
     except sqlite3.Error as e:
         raise HTTPException(400, str(e))
+    finally:
+        if conn:
+            conn.close()
 
 
 @router.get("/rows")
 async def get_rows(db_path: str, table: str, limit: int = 100, offset: int = 0):
+    table = validate_table_name(table)
     if limit > 1000:
         limit = 1000
+    conn = None
     try:
         conn = get_conn(db_path)
-        cur = conn.execute(f"SELECT * FROM {table} LIMIT ? OFFSET ?", (limit, offset))
+        cur = conn.execute(f"SELECT * FROM \"{table}\" LIMIT ? OFFSET ?", (limit, offset))
         rows = [dict(row) for row in cur.fetchall()]
-        cur2 = conn.execute(f"SELECT COUNT(*) FROM {table}")
+        cur2 = conn.execute(f"SELECT COUNT(*) FROM \"{table}\"")
         total = cur2.fetchone()[0]
-        conn.close()
         return {"rows": rows, "total": total, "limit": limit, "offset": offset}
     except sqlite3.Error as e:
         raise HTTPException(400, str(e))
+    finally:
+        if conn:
+            conn.close()
 
 
 class QueryBody(BaseModel):
@@ -96,6 +115,7 @@ async def run_query(body: QueryBody):
     for kw in BLOCKED:
         if sql_upper.startswith(kw) or f" {kw} " in sql_upper:
             raise HTTPException(400, f"Write operation '{kw}' not allowed in query viewer")
+    conn = None
     try:
         conn = get_conn(body.db_path)
         cur = conn.execute(body.sql)
@@ -104,7 +124,9 @@ async def run_query(body: QueryBody):
             rows = [dict(zip(cols, row)) for row in cur.fetchmany(500)]
         else:
             cols, rows = [], []
-        conn.close()
         return {"columns": cols, "rows": rows, "count": len(rows)}
     except sqlite3.Error as e:
         raise HTTPException(400, str(e))
+    finally:
+        if conn:
+            conn.close()

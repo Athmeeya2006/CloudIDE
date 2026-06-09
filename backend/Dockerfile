@@ -6,9 +6,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     curl \
     build-essential \
-    nodejs \
-    npm \
     && rm -rf /var/lib/apt/lists/*
+
+# Add group/user and configure permissions
+RUN groupadd -g 1000 ide && \
+    useradd -u 1000 -g ide -s /bin/bash -m ide && \
+    mkdir -p /workspaces/default /app && \
+    chown -R ide:ide /workspaces /app
+
+WORKDIR /app
 
 # Install Python deps for common project types
 RUN pip install --no-cache-dir \
@@ -21,15 +27,13 @@ RUN pip install --no-cache-dir \
     psycopg2-binary \
     python-dotenv
 
-WORKDIR /app
-
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY --chown=ide:ide . .
 
-RUN mkdir -p /workspaces/default
+USER ide
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

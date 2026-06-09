@@ -12,6 +12,7 @@ import { NewFileDialog } from './components/Modals/NewFileDialog';
 import { useFileStore } from './stores/fileStore';
 import { useUIStore } from './stores/uiStore';
 import { useHotkeys } from 'react-hotkeys-hook';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 export default function App() {
   const { refreshTree, saveActiveFile } = useFileStore();
@@ -81,14 +82,18 @@ export default function App() {
               <Panel id="editor" defaultSize={previewOpen ? 60 : 100}>
                 <PanelGroup direction="vertical">
                   <Panel id="editor-area" defaultSize={bottomOpen ? 65 : 100} minSize={20}>
-                    <EditorArea />
+                    <ErrorBoundary>
+                      <EditorArea />
+                    </ErrorBoundary>
                   </Panel>
 
                   {bottomOpen && (
                     <>
                       <PanelResizeHandle className="h-[3px] bg-ide-border hover:bg-ide-accent transition-colors cursor-row-resize" />
                       <Panel id="bottom" defaultSize={35} minSize={15} maxSize={70}>
-                        <BottomPanel />
+                        <ErrorBoundary>
+                          <BottomPanel />
+                        </ErrorBoundary>
                       </Panel>
                     </>
                   )}

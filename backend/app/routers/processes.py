@@ -5,7 +5,8 @@ import uuid
 import logging
 from typing import Dict, List, Optional
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from app.config import settings
 
 router = APIRouter(prefix="/api/processes", tags=["processes"])
 logger = logging.getLogger(__name__)
@@ -16,6 +17,21 @@ class ProcessCreate(BaseModel):
     cwd: str
     name: Optional[str] = None
     env: Optional[Dict[str, str]] = None
+
+    @field_validator('command')
+    @classmethod
+    def clean_command(cls, v: str) -> str:
+        v = v.replace('\x00', '').strip()
+        if len(v) > 2048:
+            raise ValueError("Command too long")
+        if not v:
+            raise ValueError("Command cannot be empty")
+        return v
+
+    @field_validator('cwd')
+    @classmethod
+    def clean_cwd(cls, v: str) -> str:
+        return v.replace('\x00', '').strip()
 
 
 class ManagedProcess:
@@ -64,12 +80,22 @@ class ManagedProcess:
                         q.put_nowait(line)
                     except asyncio.QueueFull:
                         pass
+            elif self.proc.poll() is not None:
+                break
+
         rc = self.proc.returncode if self.proc else -1
-        self.status = "stopped" if rc == 0 else "error"
-        sentinel = None
+        exit_msg = f"\n[Process exited with code {rc}]\n"
+        self.logs.append(exit_msg)
         for q in list(self._queues):
             try:
-                q.put_nowait(sentinel)
+                q.put_nowait(exit_msg)
+            except Exception:
+                pass
+
+        self.status = "stopped" if rc == 0 else "error"
+        for q in list(self._queues):
+            try:
+                q.put_nowait(None)
             except Exception:
                 pass
 
@@ -109,6 +135,14 @@ class ProcessManager:
         self._procs: Dict[str, ManagedProcess] = {}
 
     def create(self, cmd: str, name: str, cwd: str) -> ManagedProcess:
+        # Remove dead processes first
+        dead = [pid for pid, p in self._procs.items() if p.status == 'stopped']
+        for pid in dead:
+            del self._procs[pid]
+
+        if len(self._procs) >= settings.max_processes:
+            raise HTTPException(429, f"Max processes ({settings.max_processes}) reached")
+        
         pid = str(uuid.uuid4())[:8]
         p = ManagedProcess(pid, cmd, name, cwd)
         self._procs[pid] = p

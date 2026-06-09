@@ -8,8 +8,10 @@ import termios
 import subprocess
 import json
 import logging
+import shutil
 from typing import Dict
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from pathlib import Path
 
 from app.config import settings
 
@@ -28,6 +30,12 @@ class TerminalSession:
         master_fd, slave_fd = pty.openpty()
         self.master_fd = master_fd
 
+        shell = (
+            shutil.which('bash') or
+            shutil.which('sh') or
+            '/bin/sh'
+        )
+
         env = {
             **os.environ,
             "TERM": "xterm-256color",
@@ -35,11 +43,11 @@ class TerminalSession:
             "LINES": "24",
             "COLUMNS": "80",
             "HOME": os.path.expanduser("~"),
-            "SHELL": "/bin/bash",
+            "SHELL": shell,
         }
 
         self.process = subprocess.Popen(
-            ["/bin/bash", "--login"],
+            [shell],
             stdin=slave_fd,
             stdout=slave_fd,
             stderr=slave_fd,
@@ -114,6 +122,13 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
     await websocket.accept()
 
     cwd = websocket.query_params.get("cwd", str(settings.workspace_path / "default"))
+    base = str(settings.workspace_path.resolve())
+    cwd_resolved = str(Path(cwd).resolve())
+    if not cwd_resolved.startswith(base):
+        await websocket.close(code=4003, reason="Invalid workspace path")
+        return
+    cwd = cwd_resolved
+
     os.makedirs(cwd, exist_ok=True)
 
     session = manager.create(session_id, cwd)

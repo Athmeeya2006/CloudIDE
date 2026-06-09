@@ -26,10 +26,10 @@ jobs:
           pip install pytest pytest-asyncio httpx
 
       - name: Ruff lint
-        run: cd backend && python -m ruff check . || true
+        run: cd backend && ruff check .
 
       - name: Run tests
-        run: cd backend && python -m pytest tests/ -v --tb=short 2>/dev/null || echo "No tests yet"
+        run: cd backend && pytest tests/ -v --tb=short
 
   frontend-checks:
     name: Frontend type-check + lint

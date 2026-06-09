@@ -1,7 +1,7 @@
 import React from 'react';
 import { TerminalPanel } from './TerminalPanel';
 import { LogsPanel } from './LogsPanel';
-import { DbViewerPanel } from './DbViewerPanel';
+import { DatabaseViewer } from './DatabaseViewer';
 import { useUIStore } from '../../stores/uiStore';
 import { cn } from '../../utils';
 import type { BottomView } from '../../types';
@@ -58,7 +58,7 @@ export function BottomPanel() {
       <div className="flex-1 overflow-hidden relative">
         {bottomView === 'terminal' && <TerminalPanel />}
         {bottomView === 'logs' && <LogsPanel />}
-        {bottomView === 'db-viewer' && <DbViewerPanel />}
+        {bottomView === 'db-viewer' && <DatabaseViewer />}
       </div>
     </div>
   );

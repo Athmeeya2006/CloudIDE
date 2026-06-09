@@ -18,20 +18,29 @@ def ws_path(workspace: str) -> Path:
     return p
 
 
-async def run_git(args: list[str], cwd: str) -> dict:
-    proc = await asyncio.create_subprocess_exec(
-        "git", *args,
-        cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate()
-    return {
-        "returncode": proc.returncode,
-        "stdout": stdout.decode(errors="replace"),
-        "stderr": stderr.decode(errors="replace"),
-        "ok": proc.returncode == 0,
-    }
+async def run_git(args: list[str], cwd: str, timeout: int = 60) -> dict:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", *args,
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return {
+            "returncode": proc.returncode,
+            "stdout": stdout.decode(errors="replace"),
+            "stderr": stderr.decode(errors="replace"),
+            "ok": proc.returncode == 0,
+        }
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        raise HTTPException(408, f"Git operation timed out after {timeout}s")
+    except FileNotFoundError:
+        raise HTTPException(500, "git is not installed in this environment")
 
 
 class CloneBody(BaseModel):

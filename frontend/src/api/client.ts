@@ -1,12 +1,34 @@
 import axios from 'axios';
 
-export const WS_BASE = import.meta.env.VITE_WS_URL || ((window.location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + window.location.host);
+function getWsBase(): string {
+  if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL
+      .replace(/^https:/, 'wss:')
+      .replace(/^http:/, 'ws:');
+  }
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${window.location.host}`;
+}
+
+export const WS_BASE = getWsBase();
 const BASE = import.meta.env.VITE_API_URL || '';
 
 export const api = axios.create({
   baseURL: BASE,
-  timeout: 15000,
+  timeout: 30000, // Increase to 30s for slow operations like git clone
+  headers: { 'Content-Type': 'application/json' },
 });
+
+api.interceptors.response.use(
+  (r) => r,
+  (err) => {
+    if (err.code === 'ECONNABORTED') {
+      err.message = 'Request timed out — is the backend running?';
+    }
+    return Promise.reject(err);
+  },
+);
 
 // ---- Files ----
 export const filesApi = {
