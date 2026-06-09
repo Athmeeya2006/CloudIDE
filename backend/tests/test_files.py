@@ -6,7 +6,6 @@ from app.main import app
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
     monkeypatch.setenv("WORKSPACE_BASE", str(tmp_path))
-    import importlib
     from app import config
     config.settings = config.Settings()
     return tmp_path

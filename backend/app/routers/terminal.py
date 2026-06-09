@@ -11,9 +11,7 @@ import logging
 import shutil
 from typing import Dict
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
-from pathlib import Path
 
-from app.config import settings
 from app.routers.processes import resolve_workspace_cwd
 
 logger = logging.getLogger(__name__)

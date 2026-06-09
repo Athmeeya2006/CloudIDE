@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException
@@ -111,7 +110,7 @@ async def git_status(workspace: str = "default", folder: str = ""):
     result = await run_git(["status", "--porcelain", "-u"], cwd)
     if not result["ok"]:
         raise HTTPException(400, result["stderr"])
-    lines = [l for l in result["stdout"].splitlines() if l.strip()]
+    lines = [item for item in result["stdout"].splitlines() if item.strip()]
     files = []
     for line in lines:
         status = line[:2].strip()

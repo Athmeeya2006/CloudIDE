@@ -31,7 +31,7 @@ app = FastAPI(
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 origins = settings.origins_list
-allow_creds = not ("*" in origins)
+allow_creds = "*" not in origins
 
 app.add_middleware(
     CORSMiddleware,

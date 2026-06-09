@@ -2,7 +2,6 @@ import sqlite3
 import os
 import re
 from pathlib import Path
-from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
