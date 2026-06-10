@@ -15,25 +15,16 @@ logger = logging.getLogger(__name__)
 
 def resolve_workspace_cwd(cwd_param: str) -> Path:
     clean = cwd_param.replace('\x00', '').strip()
-    
-    # Strip well-known absolute prefixes to convert to a relative path
-    for prefix in [
-        "/home/athmeeya/CloudIDE/workspaces",
-        "/workspaces",
-    ]:
+    for prefix in [str(settings.workspace_path)]:
         if clean.startswith(prefix):
             clean = clean[len(prefix):].lstrip('/')
             break
-            
     base = settings.workspace_path.resolve()
     resolved = (base / clean).resolve()
-    
-    # Verify resolving didn't escape settings.workspace_path
     try:
         resolved.relative_to(base)
     except ValueError:
         raise HTTPException(403, "Access denied")
-        
     return resolved
 
 
