@@ -116,8 +116,20 @@ export function TerminalPanel() {
     });
     resizeObserver.observe(containerRef.current);
 
+    const handleRunInTerminal = (e: Event) => {
+      const cmd = (e as CustomEvent).detail?.command;
+      if (cmd && ws.readyState === WebSocket.OPEN) {
+        ws.send('\x03');
+        setTimeout(() => {
+          ws.send(cmd + '\r');
+        }, 150);
+      }
+    };
+    window.addEventListener('run-in-terminal', handleRunInTerminal);
+
     return () => {
       resizeObserver.disconnect();
+      window.removeEventListener('run-in-terminal', handleRunInTerminal);
       ws.close();
       term.dispose();
     };

@@ -21,54 +21,41 @@ export function EditorArea() {
       notify('Failed to save file before running', 'error');
     }
 
-    openBottom('logs');
+    openBottom('terminal');
 
     const parts = activeTabPath.split('/');
     const filename = parts[parts.length - 1];
-    const fileDir = parts.slice(0, -1).join('/') || workspace;
+    const relativePath = parts.slice(1).join('/');
     const ext = filename.split('.').pop()?.toLowerCase();
 
     let command = '';
-    let displayName = '';
 
     if (filename === 'manage.py') {
       command = 'python manage.py runserver 0.0.0.0:8001';
-      displayName = 'Django Server';
     } else if (ext === 'py') {
-      command = `python3 -u "${filename}"`;
-      displayName = `Python: ${filename}`;
+      command = `python3 -u "${relativePath}"`;
     } else if (ext === 'cpp' || ext === 'cc') {
-      const out = filename.substring(0, filename.lastIndexOf('.')) || 'app';
-      command = `g++ -Wall -O3 -o "${out}" "${filename}" && "./${out}"`;
-      displayName = `C++: ${filename}`;
+      const out = relativePath.substring(0, relativePath.lastIndexOf('.')) || 'app';
+      command = `g++ -Wall -O3 -o "${out}" "${relativePath}" && stdbuf -oL -eL "./${out}"`;
     } else if (ext === 'c') {
-      const out = filename.substring(0, filename.lastIndexOf('.')) || 'app';
-      command = `gcc -Wall -O3 -o "${out}" "${filename}" && "./${out}"`;
-      displayName = `C: ${filename}`;
+      const out = relativePath.substring(0, relativePath.lastIndexOf('.')) || 'app';
+      command = `gcc -Wall -O3 -o "${out}" "${relativePath}" && stdbuf -oL -eL "./${out}"`;
     } else if (ext === 'js') {
-      command = `node "${filename}"`;
-      displayName = `Node: ${filename}`;
+      command = `node "${relativePath}"`;
     } else if (ext === 'go') {
-      command = `go run "${filename}"`;
-      displayName = `Go: ${filename}`;
+      command = `go run "${relativePath}"`;
     } else if (ext === 'rs') {
-      const out = filename.substring(0, filename.lastIndexOf('.')) || 'app';
-      command = `rustc "${filename}" && "./${out}"`;
-      displayName = `Rust: ${filename}`;
+      const out = relativePath.substring(0, relativePath.lastIndexOf('.')) || 'app';
+      command = `rustc "${relativePath}" && "./${out}"`;
     } else if (ext === 'sh' || ext === 'bash') {
-      command = `bash "${filename}"`;
-      displayName = `Shell: ${filename}`;
+      command = `bash "${relativePath}"`;
     } else {
       notify(`Running .${ext} files is not supported. Please use the terminal.`, 'error');
       return;
     }
 
-    try {
-      await runCommand(command, fileDir, displayName);
-      notify(`${displayName} started`, 'success');
-    } catch {
-      notify(`Failed to run ${filename}`, 'error');
-    }
+    const fullTerminalCommand = `cd "$WORKSPACE_DIR" && ${command}`;
+    window.dispatchEvent(new CustomEvent('run-in-terminal', { detail: { command: fullTerminalCommand } }));
   };
 
   // Global F5 key listener to compile/run code (like VS Code)

@@ -43,6 +43,7 @@ class TerminalSession:
             "COLUMNS": "80",
             "HOME": os.path.expanduser("~"),
             "SHELL": shell,
+            "WORKSPACE_DIR": self.cwd,
         }
 
         self.process = subprocess.Popen(
@@ -53,7 +54,7 @@ class TerminalSession:
             cwd=self.cwd,
             env=env,
             close_fds=True,
-            preexec_fn=os.setsid,
+            start_new_session=True,
         )
         os.close(slave_fd)
         return self
