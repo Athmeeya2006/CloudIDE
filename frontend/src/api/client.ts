@@ -1,8 +1,5 @@
 import axios from 'axios';
 
-console.log("API", import.meta.env.VITE_API_URL);
-console.log("WS", import.meta.env.VITE_WS_URL);
-
 function getWsBase(): string {
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
   if (import.meta.env.VITE_API_URL) {
@@ -19,7 +16,7 @@ const BASE = import.meta.env.VITE_API_URL || '';
 
 export const api = axios.create({
   baseURL: BASE,
-  timeout: 30000, // Increase to 30s for slow operations like git clone
+  timeout: 30000,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -55,6 +52,11 @@ export const filesApi = {
 
   search: (query: string, workspace = 'default') =>
     api.get('/api/files/search', { params: { query, workspace } }).then(r => r.data),
+
+  grep: (query: string, workspace = 'default', caseSensitive = false) =>
+    api.get('/api/files/grep', {
+      params: { query, workspace, case_sensitive: caseSensitive },
+    }).then(r => r.data),
 
   listWorkspaces: () =>
     api.get('/api/files/workspaces').then(r => r.data),
@@ -101,9 +103,21 @@ export const gitApi = {
   status: (workspace = 'default', folder = '') =>
     api.get('/api/git/status', { params: { workspace, folder } }).then(r => r.data),
 
+  diff: (workspace = 'default', folder = '', file = '') =>
+    api.get('/api/git/diff', { params: { workspace, folder, file } }).then(r => r.data),
+
   commit: (message: string, workspace = 'default', folder = '', add_all = true) =>
     api.post('/api/git/commit', { message, workspace, folder, add_all }).then(r => r.data),
 
+  pull: (workspace = 'default', folder = '') =>
+    api.post('/api/git/pull', { workspace, folder }).then(r => r.data),
+
+  push: (workspace = 'default', folder = '') =>
+    api.post('/api/git/push', { workspace, folder }).then(r => r.data),
+
   log: (workspace = 'default', folder = '') =>
     api.get('/api/git/log', { params: { workspace, folder } }).then(r => r.data),
+
+  branches: (workspace = 'default', folder = '') =>
+    api.get('/api/git/branches', { params: { workspace, folder } }).then(r => r.data),
 };

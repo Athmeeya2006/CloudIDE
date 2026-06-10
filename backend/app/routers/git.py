@@ -12,15 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 def resolve_git_dir(workspace: str, folder: str = "") -> Path:
-    # Ensure workspace base exists
     base = (settings.workspace_path / workspace.replace('\x00', '')).resolve()
-    # Ensure workspace doesn't escape settings.workspace_path
     try:
         base.relative_to(settings.workspace_path.resolve())
     except ValueError:
         raise HTTPException(403, "Access denied")
 
-    # Clean the folder path
     clean_folder = folder.replace('\x00', '').lstrip('/')
     if '..' in clean_folder.split('/') or '..' in workspace.replace('\x00', '').split('/'):
         raise HTTPException(403, "Access denied")
@@ -31,14 +28,12 @@ def resolve_git_dir(workspace: str, folder: str = "") -> Path:
     except ValueError:
         raise HTTPException(403, "Access denied")
 
-    # Ensure the directory actually exists (git operations must run in existing folders)
     if not resolved.exists():
         raise HTTPException(404, f"Directory not found: {folder}")
     if not resolved.is_dir():
         raise HTTPException(400, f"Path is not a directory: {folder}")
 
-    # Auto-detect git repository:
-    # 1. Traverse upwards from resolved directory to base, looking for .git folder
+    # Walk up looking for .git
     curr = resolved
     while True:
         if (curr / ".git").exists():
@@ -47,7 +42,7 @@ def resolve_git_dir(workspace: str, folder: str = "") -> Path:
             break
         curr = curr.parent
 
-    # 2. If base itself is not a git repo, check first-level subdirectories of base
+    # Check first-level subdirectories
     try:
         for p in base.iterdir():
             if p.is_dir() and (p / ".git").exists():
@@ -91,15 +86,12 @@ class CloneBody(BaseModel):
 
 @router.post("/clone")
 async def clone(body: CloneBody):
-    # For clone, the workspace base must exist, but the destination folder will be created.
-    # So resolve the parent/base first.
     base = (settings.workspace_path / body.workspace.replace('\x00', '')).resolve()
     try:
         base.relative_to(settings.workspace_path.resolve())
     except ValueError:
         raise HTTPException(403, "Access denied")
 
-    # Check folder path safety
     clean_folder = (body.folder or "").replace('\x00', '').lstrip('/')
     if '..' in clean_folder.split('/') or '..' in body.workspace.replace('\x00', '').split('/'):
         raise HTTPException(403, "Access denied")
@@ -115,8 +107,7 @@ async def clone(body: CloneBody):
     if dest.exists():
         raise HTTPException(400, f"Folder '{folder}' already exists")
 
-    # Run clone inside base
-    result = await run_git(["clone", body.url, str(dest)], str(base))
+    result = await run_git(["clone", body.url, str(dest)], str(base), timeout=120)
     if not result["ok"]:
         raise HTTPException(400, result["stderr"])
     return {"status": "cloned", "path": str(dest.relative_to(settings.workspace_path))}
@@ -134,12 +125,59 @@ async def git_status(workspace: str = "default", folder: str = ""):
         status = line[:2].strip()
         path = line[3:].strip()
         files.append({"status": status, "path": path})
-    return {"files": files, "branch": await _get_branch(cwd)}
+    branch = await _get_branch(cwd)
+    ahead_behind = await _get_ahead_behind(cwd)
+    return {"files": files, "branch": branch, **ahead_behind}
 
 
 async def _get_branch(cwd: str) -> str:
     result = await run_git(["branch", "--show-current"], cwd)
     return result["stdout"].strip() if result["ok"] else "unknown"
+
+
+async def _get_ahead_behind(cwd: str) -> dict:
+    result = await run_git(["rev-list", "--left-right", "--count", "HEAD...@{u}"], cwd)
+    if result["ok"] and result["stdout"].strip():
+        parts = result["stdout"].strip().split()
+        if len(parts) == 2:
+            return {"ahead": int(parts[0]), "behind": int(parts[1])}
+    return {"ahead": 0, "behind": 0}
+
+
+@router.get("/diff")
+async def git_diff(workspace: str = "default", folder: str = "", file: str = ""):
+    cwd = str(resolve_git_dir(workspace, folder))
+
+    if file:
+        # Validate file path safety
+        clean_file = file.replace('\x00', '')
+        if '..' in clean_file.split('/'):
+            raise HTTPException(403, "Access denied")
+
+        # Try unstaged diff first, then staged
+        result = await run_git(["diff", "--", clean_file], cwd)
+        if not result["stdout"]:
+            result = await run_git(["diff", "--cached", "--", clean_file], cwd)
+        if not result["stdout"]:
+            # New untracked file - show content as added
+            result = await run_git(["diff", "--no-index", "/dev/null", clean_file], cwd)
+    else:
+        result = await run_git(["diff", "HEAD"], cwd)
+        if not result["stdout"]:
+            result = await run_git(["diff"], cwd)
+
+    return {"diff": result["stdout"], "stderr": result.get("stderr", "")}
+
+
+@router.get("/diff-stat")
+async def git_diff_stat(workspace: str = "default", folder: str = ""):
+    cwd = str(resolve_git_dir(workspace, folder))
+    result = await run_git(["diff", "--stat"], cwd)
+    staged = await run_git(["diff", "--cached", "--stat"], cwd)
+    return {
+        "unstaged": result["stdout"],
+        "staged": staged["stdout"],
+    }
 
 
 class CommitBody(BaseModel):
@@ -160,8 +198,36 @@ async def commit(body: CommitBody):
     return {"status": "committed", "output": result["stdout"]}
 
 
+class PullBody(BaseModel):
+    workspace: str = "default"
+    folder: str = ""
+
+
+@router.post("/pull")
+async def git_pull(body: PullBody):
+    cwd = str(resolve_git_dir(body.workspace, body.folder))
+    result = await run_git(["pull", "--rebase=false"], cwd, timeout=120)
+    if not result["ok"]:
+        raise HTTPException(400, result["stderr"] or result["stdout"])
+    return {"status": "pulled", "output": result["stdout"]}
+
+
+class PushBody(BaseModel):
+    workspace: str = "default"
+    folder: str = ""
+
+
+@router.post("/push")
+async def git_push(body: PushBody):
+    cwd = str(resolve_git_dir(body.workspace, body.folder))
+    result = await run_git(["push"], cwd, timeout=120)
+    if not result["ok"]:
+        raise HTTPException(400, result["stderr"] or result["stdout"])
+    return {"status": "pushed", "output": result["stdout"]}
+
+
 @router.get("/log")
-async def git_log(workspace: str = "default", folder: str = "", limit: int = 20):
+async def git_log(workspace: str = "default", folder: str = "", limit: int = 30):
     cwd = str(resolve_git_dir(workspace, folder))
     result = await run_git(
         ["log", f"--max-count={limit}", "--pretty=format:%H|%an|%ae|%ai|%s"],
@@ -181,3 +247,13 @@ async def git_log(workspace: str = "default", folder: str = "", limit: int = 20)
                 "message": parts[4] if len(parts) > 4 else "",
             })
     return {"commits": commits}
+
+
+@router.get("/branches")
+async def git_branches(workspace: str = "default", folder: str = ""):
+    cwd = str(resolve_git_dir(workspace, folder))
+    result = await run_git(["branch", "-a", "--format=%(refname:short)"], cwd)
+    if not result["ok"]:
+        raise HTTPException(400, result["stderr"])
+    branches = [b.strip() for b in result["stdout"].splitlines() if b.strip()]
+    return {"branches": branches}

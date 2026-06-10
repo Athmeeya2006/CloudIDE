@@ -9,16 +9,25 @@ from app.config import settings
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
+SKIP_DIRS = frozenset({"node_modules", "__pycache__", ".git", "venv", ".venv", "dist", ".next", "build", ".cache"})
+BINARY_EXTS = frozenset({
+    "jpg","jpeg","png","gif","ico","svg","webp","bmp","tiff",
+    "woff","woff2","ttf","eot","otf",
+    "db","sqlite","sqlite3",
+    "zip","tar","gz","bz2","7z","rar",
+    "pdf","doc","docx","xls","xlsx","ppt","pptx",
+    "exe","dll","so","dylib","bin","o","a",
+    "mp3","mp4","wav","avi","mov","mkv",
+    "pyc","pyo","class",
+})
+
 
 def resolve(path: str) -> Path:
     base = settings.workspace_path.resolve()
-    # Strip any null bytes and normalize
     clean = path.replace('\x00', '').lstrip('/')
-    # Block obvious traversal attempts early
     if '..' in clean.split('/'):
         raise HTTPException(403, "Access denied")
     resolved = (base / clean).resolve()
-    # Final check after resolving symlinks
     try:
         resolved.relative_to(base)
     except ValueError:
@@ -29,7 +38,10 @@ def resolve(path: str) -> Path:
 def node(p: Path, base: Path) -> dict:
     rel = str(p.relative_to(base))
     if p.is_dir():
-        children = sorted(p.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))
+        try:
+            children = sorted(p.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))
+        except PermissionError:
+            children = []
         return {
             "name": p.name,
             "path": rel,
@@ -73,14 +85,12 @@ async def read_file(path: str):
         raise HTTPException(404, "File not found")
     if full.is_dir():
         raise HTTPException(400, "Path is a directory")
-
-    # Detect binary
     try:
         async with aiofiles.open(full, "r", encoding="utf-8") as f:
             content = await f.read()
         return {"path": path, "content": content, "encoding": "utf-8"}
     except UnicodeDecodeError:
-        return {"path": path, "content": "", "encoding": "binary", "error": "Binary file"}
+        return {"path": path, "content": "", "encoding": "binary", "error": "Binary file — cannot display"}
 
 
 class CreateBody(BaseModel):
@@ -146,12 +156,12 @@ async def copy(body: CopyBody):
 
 @router.get("/search")
 async def search_files(query: str, workspace: str = "default", max_results: int = 50):
+    """Search by filename."""
     base = settings.workspace_path / workspace
     results = []
     q = query.lower()
     for root, dirs, files_list in os.walk(base):
-        # Skip hidden dirs
-        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "__pycache__", ".git", "venv", ".venv")]
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in SKIP_DIRS]
         for fname in files_list:
             if q in fname.lower():
                 full = Path(root) / fname
@@ -159,6 +169,65 @@ async def search_files(query: str, workspace: str = "default", max_results: int 
             if len(results) >= max_results:
                 return {"results": results}
     return {"results": results}
+
+
+@router.get("/grep")
+async def grep_files(
+    query: str,
+    workspace: str = "default",
+    max_results: int = 200,
+    case_sensitive: bool = False,
+):
+    """Search file contents. Returns matched lines with path and line number."""
+    if not query or len(query) < 1:
+        raise HTTPException(400, "Query too short")
+    if len(query) > 200:
+        raise HTTPException(400, "Query too long")
+
+    base = settings.workspace_path / workspace
+    results = []
+    search_q = query if case_sensitive else query.lower()
+    truncated = False
+
+    for root, dirs, files_list in os.walk(base):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in SKIP_DIRS]
+        for fname in files_list:
+            ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
+            if ext in BINARY_EXTS:
+                continue
+
+            full = Path(root) / fname
+            try:
+                file_size = full.stat().st_size
+            except OSError:
+                continue
+
+            if file_size > 2_000_000:  # Skip files > 2MB
+                continue
+
+            try:
+                with open(full, 'r', encoding='utf-8', errors='replace') as f:
+                    for line_num, line in enumerate(f, 1):
+                        check = line if case_sensitive else line.lower()
+                        if search_q in check:
+                            rel_path = str(full.relative_to(settings.workspace_path))
+                            results.append({
+                                "path": rel_path,
+                                "name": fname,
+                                "line": line_num,
+                                "content": line.rstrip()[:300],  # cap line length
+                            })
+                            if len(results) >= max_results:
+                                truncated = True
+                                break
+                if truncated:
+                    break
+            except (OSError, PermissionError):
+                continue
+        if truncated:
+            break
+
+    return {"results": results, "truncated": truncated, "count": len(results)}
 
 
 class CreateWorkspaceBody(BaseModel):

@@ -31,6 +31,8 @@ async def test_git_status_and_log(git_repo):
         data = r.json()
         assert "branch" in data
         assert "files" in data
+        assert "ahead" in data
+        assert "behind" in data
 
         # Log
         r_log = await ac.get("/api/git/log", params={"workspace": "default"})
@@ -38,6 +40,32 @@ async def test_git_status_and_log(git_repo):
         commits = r_log.json()["commits"]
         assert len(commits) > 0
         assert commits[0]["message"] in ["initial commit", "done"]
+
+
+@pytest.mark.asyncio
+async def test_git_diff_and_branches(git_repo):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # Make a change to test.txt
+        default_ws = git_repo / "default"
+        test_file = default_ws / "test.txt"
+        test_file.write_text("hello world")
+
+        # Get diff-stat
+        r_stat = await ac.get("/api/git/diff-stat", params={"workspace": "default"})
+        assert r_stat.status_code == 200
+        assert "unstaged" in r_stat.json()
+        assert "staged" in r_stat.json()
+
+        # Get diff for specific file
+        r_diff = await ac.get("/api/git/diff", params={"workspace": "default", "file": "test.txt"})
+        assert r_diff.status_code == 200
+        assert "diff" in r_diff.json()
+        assert "hello world" in r_diff.json()["diff"]
+
+        # Branches
+        r_branches = await ac.get("/api/git/branches", params={"workspace": "default"})
+        assert r_branches.status_code == 200
+        assert len(r_branches.json()["branches"]) > 0
 
 
 @pytest.mark.asyncio

@@ -51,5 +51,28 @@ export interface GitCommit {
   message: string;
 }
 
+export interface GitStatus {
+  files: GitFile[];
+  branch: string;
+  ahead: number;
+  behind: number;
+}
+
+export interface GrepResult {
+  path: string;
+  name: string;
+  line: number;
+  content: string;
+}
+
+export interface EditorSettings {
+  fontSize: number;
+  tabSize: number;
+  wordWrap: boolean;
+  minimap: boolean;
+  lineNumbers: boolean;
+  formatOnSave: boolean;
+}
+
 export type SidebarView = 'explorer' | 'search' | 'git' | 'database';
 export type BottomView = 'terminal' | 'logs' | 'db-viewer' | 'problems';

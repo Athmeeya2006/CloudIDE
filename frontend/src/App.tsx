@@ -9,6 +9,8 @@ import { PreviewPanel } from './components/Preview';
 import { Notification } from './components/Notification';
 import { CloneDialog } from './components/Modals/CloneDialog';
 import { NewFileDialog } from './components/Modals/NewFileDialog';
+import { QuickOpenDialog } from './components/Modals/QuickOpenDialog';
+import { SettingsDialog } from './components/Modals/SettingsDialog';
 import { useFileStore } from './stores/fileStore';
 import { useUIStore } from './stores/uiStore';
 import { useHotkeys } from 'react-hotkeys-hook';
@@ -16,43 +18,83 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 
 export default function App() {
   const { refreshTree, saveActiveFile } = useFileStore();
-  const { sidebarOpen, bottomOpen, previewOpen, openBottom, toggleBottom } = useUIStore();
+  const {
+    sidebarOpen, bottomOpen, previewOpen,
+    openBottom, toggleBottom, openQuickOpen,
+    openSettings, openSidebar,
+  } = useUIStore();
 
   useEffect(() => {
     refreshTree();
   }, []);
 
-  // Global hotkeys
+  // Save
   useHotkeys('ctrl+s, meta+s', (e) => {
     e.preventDefault();
     saveActiveFile();
   }, { enableOnContentEditable: true, enableOnFormTags: true });
 
+  // Toggle terminal
   useHotkeys('ctrl+`', (e) => {
     e.preventDefault();
     toggleBottom();
     openBottom('terminal');
-  });
+  }, { enableOnFormTags: true });
+
+  // Quick open (Ctrl+P)
+  useHotkeys('ctrl+p, meta+p', (e) => {
+    e.preventDefault();
+    openQuickOpen();
+  }, { enableOnFormTags: true });
+
+  // Explorer sidebar
+  useHotkeys('ctrl+shift+e', (e) => {
+    e.preventDefault();
+    openSidebar('explorer');
+  }, { enableOnFormTags: true });
+
+  // Search sidebar
+  useHotkeys('ctrl+shift+f', (e) => {
+    e.preventDefault();
+    openSidebar('search');
+  }, { enableOnFormTags: true });
+
+  // Settings
+  useHotkeys('ctrl+comma, meta+comma', (e) => {
+    e.preventDefault();
+    openSettings();
+  }, { enableOnFormTags: true });
 
   return (
     <div className="flex flex-col h-screen bg-ide-bg text-ide-text select-none overflow-hidden">
-      {/* Top title bar */}
+      {/* Title bar */}
       <div className="h-8 bg-[#323233] flex items-center justify-between px-4 shrink-0 border-b border-ide-border">
         <div className="flex items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 32 32" fill="none" className="shrink-0">
+            <rect width="32" height="32" rx="4" fill="#007acc"/>
+            <path d="M8 10l8 6-8 6V10z" fill="white"/>
+            <rect x="18" y="20" width="8" height="2" rx="1" fill="white"/>
+          </svg>
           <span className="text-[11px] font-medium text-ide-text-muted tracking-widest uppercase">Cloud IDE</span>
         </div>
-        <div className="flex items-center gap-3 text-[11px] text-ide-text-muted">
+        <div className="flex items-center gap-1 text-[11px] text-ide-text-muted">
           <button
-            onClick={() => openBottom('terminal')}
-            className="hover:text-ide-text transition-colors px-1"
+            onClick={() => { openBottom('terminal'); }}
+            className="hover:text-ide-text transition-colors px-2 py-1 hover:bg-ide-hover rounded"
           >
             Terminal
           </button>
           <button
             onClick={() => openBottom('logs')}
-            className="hover:text-ide-text transition-colors px-1"
+            className="hover:text-ide-text transition-colors px-2 py-1 hover:bg-ide-hover rounded"
           >
-            Logs
+            Processes
+          </button>
+          <button
+            onClick={openQuickOpen}
+            className="hover:text-ide-text transition-colors px-2 py-1 hover:bg-ide-hover rounded hidden sm:block"
+          >
+            Go to File
           </button>
         </div>
       </div>
@@ -67,13 +109,13 @@ export default function App() {
               <Panel
                 id="sidebar"
                 defaultSize={22}
-                minSize={15}
+                minSize={14}
                 maxSize={45}
                 className="flex flex-col bg-ide-sidebar border-r border-ide-border"
               >
                 <Sidebar />
               </Panel>
-              <PanelResizeHandle className="w-[3px] bg-ide-border hover:bg-ide-accent transition-colors cursor-col-resize" />
+              <PanelResizeHandle className="w-[3px] bg-transparent hover:bg-ide-accent/60 active:bg-ide-accent transition-colors cursor-col-resize" />
             </>
           )}
 
@@ -89,7 +131,7 @@ export default function App() {
 
                   {bottomOpen && (
                     <>
-                      <PanelResizeHandle className="h-[3px] bg-ide-border hover:bg-ide-accent transition-colors cursor-row-resize" />
+                      <PanelResizeHandle className="h-[3px] bg-transparent hover:bg-ide-accent/60 active:bg-ide-accent transition-colors cursor-row-resize" />
                       <Panel id="bottom" defaultSize={35} minSize={15} maxSize={70}>
                         <ErrorBoundary>
                           <BottomPanel />
@@ -102,7 +144,7 @@ export default function App() {
 
               {previewOpen && (
                 <>
-                  <PanelResizeHandle className="w-[3px] bg-ide-border hover:bg-ide-accent transition-colors cursor-col-resize" />
+                  <PanelResizeHandle className="w-[3px] bg-transparent hover:bg-ide-accent/60 active:bg-ide-accent transition-colors cursor-col-resize" />
                   <Panel id="preview" defaultSize={40} minSize={20}>
                     <PreviewPanel />
                   </Panel>
@@ -119,6 +161,8 @@ export default function App() {
       <Notification />
       <CloneDialog />
       <NewFileDialog />
+      <QuickOpenDialog />
+      <SettingsDialog />
     </div>
   );
 }

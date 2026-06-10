@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { SidebarView, BottomView } from '../types';
+import { SidebarView, BottomView, EditorSettings } from '../types';
 
 interface UIStore {
   sidebarView: SidebarView;
@@ -12,7 +12,12 @@ interface UIStore {
   newFileDialogOpen: boolean;
   newFilePath: string;
   newFileIsDir: boolean;
-  notification: { message: string; type: 'info' | 'error' | 'success' } | null;
+  quickOpenOpen: boolean;
+  settingsOpen: boolean;
+  gitBranch: string;
+  gitChanges: number;
+  editorSettings: EditorSettings;
+  notification: { message: string; type: 'info' | 'error' | 'success'; id: number } | null;
 
   setSidebarView: (v: SidebarView) => void;
   setBottomView: (v: BottomView) => void;
@@ -27,8 +32,26 @@ interface UIStore {
   closeCloneDialog: () => void;
   openNewFileDialog: (path: string, isDir?: boolean) => void;
   closeNewFileDialog: () => void;
+  openQuickOpen: () => void;
+  closeQuickOpen: () => void;
+  openSettings: () => void;
+  closeSettings: () => void;
+  setGitBranch: (branch: string) => void;
+  setGitChanges: (n: number) => void;
+  updateEditorSettings: (s: Partial<EditorSettings>) => void;
   notify: (message: string, type?: 'info' | 'error' | 'success') => void;
 }
+
+const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
+  fontSize: 14,
+  tabSize: 2,
+  wordWrap: false,
+  minimap: true,
+  lineNumbers: true,
+  formatOnSave: false,
+};
+
+let notifCounter = 0;
 
 export const useUIStore = create<UIStore>((set) => ({
   sidebarView: 'explorer',
@@ -41,6 +64,11 @@ export const useUIStore = create<UIStore>((set) => ({
   newFileDialogOpen: false,
   newFilePath: '',
   newFileIsDir: false,
+  quickOpenOpen: false,
+  settingsOpen: false,
+  gitBranch: '',
+  gitChanges: 0,
+  editorSettings: DEFAULT_EDITOR_SETTINGS,
   notification: null,
 
   setSidebarView: (v) => set({ sidebarView: v }),
@@ -57,8 +85,17 @@ export const useUIStore = create<UIStore>((set) => ({
   openNewFileDialog: (path, isDir = false) =>
     set({ newFileDialogOpen: true, newFilePath: path, newFileIsDir: isDir }),
   closeNewFileDialog: () => set({ newFileDialogOpen: false }),
+  openQuickOpen: () => set({ quickOpenOpen: true }),
+  closeQuickOpen: () => set({ quickOpenOpen: false }),
+  openSettings: () => set({ settingsOpen: true }),
+  closeSettings: () => set({ settingsOpen: false }),
+  setGitBranch: (branch) => set({ gitBranch: branch }),
+  setGitChanges: (n) => set({ gitChanges: n }),
+  updateEditorSettings: (s) =>
+    set(state => ({ editorSettings: { ...state.editorSettings, ...s } })),
   notify: (message, type = 'info') => {
-    set({ notification: { message, type } });
-    setTimeout(() => set({ notification: null }), 3500);
+    const id = ++notifCounter;
+    set({ notification: { message, type, id } });
+    setTimeout(() => set(s => s.notification?.id === id ? { notification: null } : s), 3500);
   },
 }));
