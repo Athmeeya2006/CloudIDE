@@ -53,7 +53,7 @@ export function LogsPanel() {
     return () => {
       ws.close();
     };
-  }, [activeProcessId]);
+  }, [activeProcessId, activeProcess?.os_pid]);
 
   // Scroll to bottom on new logs
   useEffect(() => {

@@ -1,6 +1,7 @@
 import asyncio
 import os
 import subprocess
+import signal
 import uuid
 import logging
 from pathlib import Path
@@ -76,6 +77,7 @@ class ManagedProcess:
             env=penv,
             text=True,
             bufsize=1,
+            preexec_fn=os.setsid,
         )
         self.status = "running"
         self._task = asyncio.create_task(self._stream())
@@ -129,10 +131,15 @@ class ManagedProcess:
     def stop(self):
         if self.proc and self.proc.poll() is None:
             try:
-                self.proc.terminate()
-                self.proc.wait(timeout=4)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
+                os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)
+                self.proc.wait(timeout=1.0)
+            except Exception:
+                try:
+                    os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
+                except Exception:
+                    pass
+        if self._task and not self._task.done():
+            self._task.cancel()
         self.status = "stopped"
 
     def to_dict(self) -> dict:

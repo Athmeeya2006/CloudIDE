@@ -168,11 +168,15 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
             if "bytes" in msg and msg["bytes"]:
                 session.write(msg["bytes"])
             elif "text" in msg and msg["text"]:
+                is_ctrl = False
                 try:
                     ctrl = json.loads(msg["text"])
-                    if ctrl.get("type") == "resize":
+                    if isinstance(ctrl, dict) and ctrl.get("type") == "resize":
                         session.resize(int(ctrl["rows"]), int(ctrl["cols"]))
-                except (json.JSONDecodeError, KeyError):
+                        is_ctrl = True
+                except Exception:
+                    pass
+                if not is_ctrl:
                     session.write(msg["text"].encode())
     except WebSocketDisconnect:
         pass

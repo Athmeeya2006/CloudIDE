@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { EditorTabs } from './EditorTabs';
 import { MonacoEditor } from './MonacoEditor';
 import { useFileStore } from '../../stores/fileStore';
@@ -61,6 +62,20 @@ export function EditorArea() {
       notify(`Failed to run ${filename}`, 'error');
     }
   };
+
+  // Global F5 key listener to compile/run code (like VS Code)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F5') {
+        e.preventDefault();
+        handleRun();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [activeTabPath, workspace]);
 
   return (
     <div className="h-full flex flex-col bg-ide-bg overflow-hidden">
