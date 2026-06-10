@@ -1,5 +1,8 @@
 import axios from 'axios';
 
+console.log("API", import.meta.env.VITE_API_URL);
+console.log("WS", import.meta.env.VITE_WS_URL);
+
 function getWsBase(): string {
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
   if (import.meta.env.VITE_API_URL) {

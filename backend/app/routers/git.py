@@ -37,6 +37,24 @@ def resolve_git_dir(workspace: str, folder: str = "") -> Path:
     if not resolved.is_dir():
         raise HTTPException(400, f"Path is not a directory: {folder}")
 
+    # Auto-detect git repository:
+    # 1. Traverse upwards from resolved directory to base, looking for .git folder
+    curr = resolved
+    while True:
+        if (curr / ".git").exists():
+            return curr
+        if curr == base or curr == curr.parent:
+            break
+        curr = curr.parent
+
+    # 2. If base itself is not a git repo, check first-level subdirectories of base
+    try:
+        for p in base.iterdir():
+            if p.is_dir() and (p / ".git").exists():
+                return p
+    except Exception:
+        pass
+
     return resolved
 
 
