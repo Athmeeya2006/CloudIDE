@@ -7,12 +7,20 @@ import { useUIStore } from '../../stores/uiStore';
 import { Play } from 'lucide-react';
 
 export function EditorArea() {
-  const { openTabs, activeTabPath, workspace } = useFileStore();
+  const { openTabs, activeTabPath, workspace, saveActiveFile } = useFileStore();
   const { runCommand } = useProcessStore();
   const { openBottom, notify } = useUIStore();
 
   const handleRun = async () => {
     if (!activeTabPath) return;
+
+    // Auto-save the active file before running to ensure disk is in sync
+    try {
+      await saveActiveFile();
+    } catch (err) {
+      notify('Failed to save file before running', 'error');
+    }
+
     openBottom('logs');
 
     const parts = activeTabPath.split('/');
