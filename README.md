@@ -168,17 +168,6 @@ After running `python manage.py migrate`, the database appears automatically in:
 
 ---
 
-## Deployment
-
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for the full guide. Quick summary:
-
-- **Backend** → [Railway](https://railway.app) (Docker, free tier available)
-- **Frontend** → [Vercel](https://vercel.com) (static, free tier)
-
-GitHub Actions handles CI on every push and auto-deploy on `main`.
-
----
-
 ## Extending to Other Languages
 
 The architecture is language-agnostic. To add Node.js support:
@@ -231,8 +220,7 @@ cloud-ide/
 │   │   └── utils/
 │   └── Dockerfile
 ├── .github/workflows/
-│   ├── ci.yml
-│   └── deploy.yml
+│   └── ci.yml
 ├── docker-compose.yml
 └── README.md
 ```

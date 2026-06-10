@@ -16,10 +16,6 @@ services:
     env_file:
       - backend/.env
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 512M
     networks:
       - ide-net
 
@@ -35,10 +31,6 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 256M
     networks:
       - ide-net
 
