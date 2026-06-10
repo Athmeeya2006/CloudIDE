@@ -145,11 +145,19 @@ const EDITOR_OPTIONS: MonacoType.editor.IStandaloneEditorConstructionOptions = {
 
 export function MonacoEditor() {
   const monacoHook = useMonaco();
-  const { openTabs, activeTabPath, updateContent, saveFile } = useFileStore();
+  const { openTabs, activeTabPath, updateContent } = useFileStore();
   const editorRef = useRef<MonacoType.editor.IStandaloneCodeEditor | null>(null);
   const modelsRef = useRef<Map<string, MonacoType.editor.ITextModel>>(new Map());
+  const lastStoreContentRef = useRef<string>('');
 
   const activeTab = openTabs.find(t => t.path === activeTabPath);
+
+  // Sync ref when active tab changes
+  useEffect(() => {
+    if (activeTab) {
+      lastStoreContentRef.current = activeTab.content;
+    }
+  }, [activeTabPath]);
 
   // Register theme once
   useEffect(() => {
@@ -168,9 +176,10 @@ export function MonacoEditor() {
       model = monacoHook.editor.createModel(
         activeTab.content,
         getLanguage(activeTab.name),
-        monacoHook.Uri.parse(`file:///${activeTab.path}`),
+        monacoHook.Uri.file(activeTab.path),
       );
       modelsRef.current.set(activeTab.path, model);
+      lastStoreContentRef.current = activeTab.content;
     }
 
     if (editor.getModel() !== model) {
@@ -178,14 +187,15 @@ export function MonacoEditor() {
     }
   }, [activeTabPath, monacoHook]);
 
-  // Sync content from store into model (e.g. if loaded from API)
+  // Sync content from store into model only when updated externally
   useEffect(() => {
     if (!activeTab || !monacoHook) return;
     const model = modelsRef.current.get(activeTab.path);
-    if (model && !model.isDisposed() && model.getValue() !== activeTab.content) {
+    if (model && !model.isDisposed() && activeTab.content !== lastStoreContentRef.current) {
+      lastStoreContentRef.current = activeTab.content;
       model.setValue(activeTab.content);
     }
-  }, [activeTab?.content]);
+  }, [activeTab?.content, monacoHook]);
 
   // Clean up disposed models when tabs close
   useEffect(() => {
@@ -197,7 +207,7 @@ export function MonacoEditor() {
         modelsRef.current.delete(path);
       }
     }
-  }, [openTabs]);
+  }, [openTabs, monacoHook]);
 
   const handleMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -215,9 +225,10 @@ export function MonacoEditor() {
         model = monaco.editor.createModel(
           activeTab.content,
           getLanguage(activeTab.name),
-          monaco.Uri.parse(`file:///${activeTab.path}`),
+          monaco.Uri.file(activeTab.path),
         );
         modelsRef.current.set(activeTab.path, model);
+        lastStoreContentRef.current = activeTab.content;
       }
       editor.setModel(model);
     }
@@ -231,7 +242,9 @@ export function MonacoEditor() {
     const model = modelsRef.current.get(activeTab.path);
     if (!model) return;
     const disposable = model.onDidChangeContent(() => {
-      updateContent(activeTab.path, model.getValue());
+      const value = model.getValue();
+      lastStoreContentRef.current = value;
+      updateContent(activeTab.path, value);
     });
     return () => disposable.dispose();
   }, [activeTabPath, monacoHook]);
@@ -242,8 +255,6 @@ export function MonacoEditor() {
     <Editor
       height="100%"
       theme="cloud-ide-dark"
-      language={getLanguage(activeTab.name)}
-      defaultValue={activeTab.content}
       onMount={handleMount}
       options={EDITOR_OPTIONS}
       loading={

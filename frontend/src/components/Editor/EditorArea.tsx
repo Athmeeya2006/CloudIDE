@@ -6,22 +6,59 @@ import { useUIStore } from '../../stores/uiStore';
 import { Play } from 'lucide-react';
 
 export function EditorArea() {
-  const { openTabs } = useFileStore();
+  const { openTabs, activeTabPath, workspace } = useFileStore();
   const { runCommand } = useProcessStore();
-  const { workspace } = useFileStore();
   const { openBottom, notify } = useUIStore();
 
   const handleRun = async () => {
+    if (!activeTabPath) return;
     openBottom('logs');
+
+    const parts = activeTabPath.split('/');
+    const filename = parts[parts.length - 1];
+    const fileDir = parts.slice(0, -1).join('/') || workspace;
+    const ext = filename.split('.').pop()?.toLowerCase();
+
+    let command = '';
+    let displayName = '';
+
+    if (filename === 'manage.py') {
+      command = 'python manage.py runserver 0.0.0.0:8001';
+      displayName = 'Django Server';
+    } else if (ext === 'py') {
+      command = `python3 -u "${filename}"`;
+      displayName = `Python: ${filename}`;
+    } else if (ext === 'cpp' || ext === 'cc') {
+      const out = filename.substring(0, filename.lastIndexOf('.')) || 'app';
+      command = `g++ -Wall -O3 -o "${out}" "${filename}" && "./${out}"`;
+      displayName = `C++: ${filename}`;
+    } else if (ext === 'c') {
+      const out = filename.substring(0, filename.lastIndexOf('.')) || 'app';
+      command = `gcc -Wall -O3 -o "${out}" "${filename}" && "./${out}"`;
+      displayName = `C: ${filename}`;
+    } else if (ext === 'js') {
+      command = `node "${filename}"`;
+      displayName = `Node: ${filename}`;
+    } else if (ext === 'go') {
+      command = `go run "${filename}"`;
+      displayName = `Go: ${filename}`;
+    } else if (ext === 'rs') {
+      const out = filename.substring(0, filename.lastIndexOf('.')) || 'app';
+      command = `rustc "${filename}" && "./${out}"`;
+      displayName = `Rust: ${filename}`;
+    } else if (ext === 'sh' || ext === 'bash') {
+      command = `bash "${filename}"`;
+      displayName = `Shell: ${filename}`;
+    } else {
+      notify(`Running .${ext} files is not supported. Please use the terminal.`, 'error');
+      return;
+    }
+
     try {
-      await runCommand(
-        'python manage.py runserver 0.0.0.0:8001',
-        workspace,
-        'Django Dev Server',
-      );
-      notify('Server started on port 8001', 'success');
+      await runCommand(command, fileDir, displayName);
+      notify(`${displayName} started`, 'success');
     } catch {
-      notify('Failed to start server', 'error');
+      notify(`Failed to run ${filename}`, 'error');
     }
   };
 
