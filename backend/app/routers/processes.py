@@ -77,7 +77,7 @@ class ManagedProcess:
             env=penv,
             text=True,
             bufsize=1,
-            preexec_fn=os.setsid,
+            start_new_session=True,
         )
         self.status = "running"
         self._task = asyncio.create_task(self._stream())
