@@ -55,6 +55,12 @@ export const filesApi = {
 
   search: (query: string, workspace = 'default') =>
     api.get('/api/files/search', { params: { query, workspace } }).then(r => r.data),
+
+  listWorkspaces: () =>
+    api.get('/api/files/workspaces').then(r => r.data),
+
+  createWorkspace: (name: string) =>
+    api.post('/api/files/workspaces', { name }).then(r => r.data),
 };
 
 // ---- Processes ----

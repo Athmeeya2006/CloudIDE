@@ -159,3 +159,29 @@ async def search_files(query: str, workspace: str = "default", max_results: int 
             if len(results) >= max_results:
                 return {"results": results}
     return {"results": results}
+
+
+class CreateWorkspaceBody(BaseModel):
+    name: str
+
+
+@router.get("/workspaces")
+async def get_workspaces():
+    base = settings.workspace_path.resolve()
+    try:
+        dirs = [d.name for d in base.iterdir() if d.is_dir() and not d.name.startswith(".")]
+        if "default" not in dirs:
+            dirs.insert(0, "default")
+        return {"workspaces": sorted(dirs, key=lambda x: (x != "default", x.lower()))}
+    except Exception:
+        return {"workspaces": ["default"]}
+
+
+@router.post("/workspaces")
+async def create_workspace(body: CreateWorkspaceBody):
+    name = body.name.replace('\x00', '').strip()
+    if not name or '..' in name.split('/') or '/' in name:
+        raise HTTPException(400, "Invalid workspace name")
+    full = settings.workspace_path / name
+    full.mkdir(parents=True, exist_ok=True)
+    return {"status": "created", "workspace": name}
