@@ -84,7 +84,7 @@ class ManagedProcess:
 
     async def _stream(self):
         loop = asyncio.get_event_loop()
-        while self.proc and self.proc.poll() is None:
+        while self.proc:
             try:
                 line = await loop.run_in_executor(None, self.proc.stdout.readline)
             except Exception:
@@ -98,10 +98,15 @@ class ManagedProcess:
                         q.put_nowait(line)
                     except asyncio.QueueFull:
                         pass
-            elif self.proc.poll() is not None:
+            else:
                 break
 
-        rc = self.proc.returncode if self.proc else -1
+        rc = -1
+        if self.proc:
+            try:
+                rc = self.proc.wait()
+            except Exception:
+                pass
         exit_msg = f"\n[Process exited with code {rc}]\n"
         self.logs.append(exit_msg)
         for q in list(self._queues):
