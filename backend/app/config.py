@@ -15,8 +15,14 @@ class Settings(BaseSettings):
     @property
     def workspace_path(self) -> Path:
         p = Path(self.workspace_base)
-        p.mkdir(parents=True, exist_ok=True)
-        return p
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+            return p
+        except PermissionError:
+            # Fallback to workspaces directory inside the project root
+            fallback = Path(__file__).resolve().parents[2] / "workspaces"
+            fallback.mkdir(parents=True, exist_ok=True)
+            return fallback
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -56,9 +56,15 @@ export function BottomPanel() {
 
       {/* View Content */}
       <div className="flex-1 overflow-hidden relative">
-        {bottomView === 'terminal' && <TerminalPanel />}
-        {bottomView === 'logs' && <LogsPanel />}
-        {bottomView === 'db-viewer' && <DatabaseViewer />}
+        <div className={cn("w-full h-full", bottomView !== 'terminal' && "hidden")}>
+          <TerminalPanel />
+        </div>
+        <div className={cn("w-full h-full", bottomView !== 'logs' && "hidden")}>
+          <LogsPanel />
+        </div>
+        <div className={cn("w-full h-full", bottomView !== 'db-viewer' && "hidden")}>
+          <DatabaseViewer />
+        </div>
       </div>
     </div>
   );

@@ -93,9 +93,10 @@ export function TerminalPanel() {
     });
 
     const handleResize = () => {
+      if (!containerRef.current || containerRef.current.offsetParent === null) return;
       try {
         fitAddon.fit();
-        if (ws.readyState === WebSocket.OPEN) {
+        if (ws.readyState === WebSocket.OPEN && term.rows > 0 && term.cols > 0) {
           ws.send(
             JSON.stringify({
               type: 'resize',
