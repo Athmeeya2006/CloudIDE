@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     workspace_base: str = "/workspaces"
-    allowed_origins: str = "http://localhost:5173,http://localhost:3000"
+    allowed_origins: str = "http://localhost:5173,http://localhost:3000,https://cloud-ide-ebon.vercel.app"
     max_processes: int = 10
     port: int = 8000
 
