@@ -241,8 +241,4 @@ The Cloud IDE environment is modular and designed to easily integrate new develo
 └── README.md                  # Detailed Documentation
 ```
 
----
 
-## ⚖️ License
-
-Distributed under the MIT License. See `LICENSE` for details.
