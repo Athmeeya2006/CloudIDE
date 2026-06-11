@@ -1,10 +1,9 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import {
   ChevronRight, ChevronDown, FolderOpen, Folder,
   FilePlus, FolderPlus, RefreshCw, Trash2, Edit3,
 } from 'lucide-react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useFileStore } from '../../stores/fileStore';
 import { useUIStore } from '../../stores/uiStore';
 import { getFileIcon, cn } from '../../utils';
@@ -16,19 +15,11 @@ export function FileExplorer() {
     refreshTree,
     loading,
     workspace,
-    workspaces,
-    listWorkspaces,
-    setWorkspace,
-    createWorkspace,
   } = useFileStore();
   const { openNewFileDialog, openCloneDialog, notify } = useUIStore();
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['']));
   const [renaming, setRenaming] = useState<string | null>(null);
   const renameRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    listWorkspaces();
-  }, []);
 
   const toggleDir = (path: string) => {
     setExpanded(prev => {
@@ -37,20 +28,6 @@ export function FileExplorer() {
       else next.add(path);
       return next;
     });
-  };
-
-  const handleCreateWorkspace = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const name = prompt("Enter a name for the new workspace:");
-    if (!name) return;
-    const cleanName = name.trim();
-    if (!cleanName) return;
-    try {
-      await createWorkspace(cleanName);
-      notify(`Workspace "${cleanName}" created`, 'success');
-    } catch {
-      notify('Failed to create workspace', 'error');
-    }
   };
 
   return (
@@ -71,56 +48,6 @@ export function FileExplorer() {
             <RefreshCw size={13} />
           </button>
         </div>
-      </div>
-
-      {/* Workspace Selector */}
-      <div className="px-3 py-2 bg-[#252526] border-b border-ide-border flex items-center justify-between gap-2 shrink-0 select-none">
-        <div className="flex items-center gap-1.5 min-w-0 flex-1">
-          <FolderOpen size={13} className="text-ide-accent shrink-0" />
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger asChild>
-              <button className="flex items-center gap-1 text-[12px] font-semibold text-ide-text hover:text-white transition-colors truncate text-left focus:outline-none">
-                <span className="truncate">{workspace}</span>
-                <ChevronDown size={11} className="opacity-60 shrink-0" />
-              </button>
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content className="bg-[#252526] border border-ide-border rounded shadow-xl py-1 min-w-[200px] z-50 animate-fade-in">
-                <DropdownMenu.Label className="px-3 py-1.5 text-[11px] font-bold tracking-wider text-ide-text-dim uppercase">
-                  Workspaces
-                </DropdownMenu.Label>
-                <DropdownMenu.Separator className="my-1 h-px bg-ide-border" />
-                {workspaces.map(ws => {
-                  const isActive = ws === workspace;
-                  return (
-                    <DropdownMenu.Item
-                      key={ws}
-                      onClick={() => {
-                        setWorkspace(ws);
-                        refreshTree();
-                      }}
-                      className={cn(
-                        "flex items-center justify-between px-3 py-1.5 text-[13px] hover:bg-ide-selected cursor-pointer outline-none transition-colors",
-                        isActive ? "text-ide-accent font-medium bg-[#1e1e1e]" : "text-ide-text"
-                      )}
-                    >
-                      <span className="truncate">{ws}</span>
-                      {isActive && <span className="text-[11px]">✓</span>}
-                    </DropdownMenu.Item>
-                  );
-                })}
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
-        </div>
-
-        <button
-          onClick={handleCreateWorkspace}
-          title="New Workspace"
-          className="p-1 hover:text-ide-text text-ide-text-dim hover:bg-ide-hover rounded transition-all shrink-0"
-        >
-          <FolderPlus size={13} />
-        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto py-1">

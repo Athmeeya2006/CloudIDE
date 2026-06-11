@@ -2,7 +2,6 @@ import { useEffect, useCallback } from 'react';
 import { EditorTabs } from './EditorTabs';
 import { MonacoEditor } from './MonacoEditor';
 import { useFileStore } from '../../stores/fileStore';
-import { useProcessStore } from '../../stores/processStore';
 import { useUIStore } from '../../stores/uiStore';
 import { Play, Settings } from 'lucide-react';
 
@@ -43,7 +42,6 @@ function getRunConfig(activeTabPath: string, workspace: string): { command: stri
 
 export function EditorArea() {
   const { openTabs, activeTabPath, workspace, saveActiveFile } = useFileStore();
-  const { runCommand } = useProcessStore();
   const { openBottom, notify, openSettings } = useUIStore();
 
   const handleRun = useCallback(async () => {
@@ -64,13 +62,21 @@ export function EditorArea() {
       return;
     }
 
-    openBottom('logs');
-    try {
-      await runCommand(config.command, config.cwd, config.displayName);
-      notify(`${config.displayName} started`, 'success');
-    } catch {
-      notify(`Failed to run ${path.split('/').pop()}`, 'error');
-    }
+    openBottom('terminal');
+
+    const relDir = config.cwd.startsWith(ws + '/')
+      ? config.cwd.substring(ws.length + 1)
+      : (config.cwd === ws ? '.' : config.cwd);
+
+    const terminalCommand = `cd "$WORKSPACE_DIR/${relDir}" && ${config.command}`;
+
+    setTimeout(() => {
+      const event = new CustomEvent('run-in-terminal', {
+        detail: { command: terminalCommand }
+      });
+      window.dispatchEvent(event);
+      notify(`Running in terminal`, 'success');
+    }, 100);
   }, []); // intentionally empty — reads from store directly
 
   // F5 — always reads fresh state via callback

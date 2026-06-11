@@ -10,7 +10,6 @@ interface FileStore {
   loading: boolean;
   error: string | null;
 
-  setWorkspace: (ws: string) => void;
   refreshTree: () => Promise<void>;
   openFile: (node: FileNode) => Promise<void>;
   closeTab: (path: string) => void;
@@ -21,41 +20,15 @@ interface FileStore {
   createFile: (path: string, is_dir?: boolean) => Promise<void>;
   renameFile: (oldPath: string, newPath: string) => Promise<void>;
   deleteFile: (path: string) => Promise<void>;
-  workspaces: string[];
-  listWorkspaces: () => Promise<void>;
-  createWorkspace: (name: string) => Promise<void>;
 }
 
 export const useFileStore = create<FileStore>((set, get) => ({
   workspace: 'default',
-  workspaces: ['default'],
   fileTree: null,
   openTabs: [],
   activeTabPath: null,
   loading: false,
   error: null,
-
-  setWorkspace: (ws) => set({ workspace: ws }),
-
-  listWorkspaces: async () => {
-    try {
-      const data = await filesApi.listWorkspaces();
-      set({ workspaces: data.workspaces });
-    } catch (e: any) {
-      set({ error: e.message });
-    }
-  },
-
-  createWorkspace: async (name) => {
-    try {
-      await filesApi.createWorkspace(name);
-      await get().listWorkspaces();
-      get().setWorkspace(name);
-      await get().refreshTree();
-    } catch (e: any) {
-      set({ error: e.message });
-    }
-  },
 
   refreshTree: async () => {
     set({ loading: true, error: null });
