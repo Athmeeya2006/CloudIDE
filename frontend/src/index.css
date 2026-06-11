@@ -1,51 +1,68 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
+ 
 * {
   box-sizing: border-box;
 }
-
+ 
 html, body, #root {
   height: 100%;
   width: 100%;
   overflow: hidden;
   background: #1e1e1e;
 }
-
-/* Scrollbar styling - VS Code style */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #424242;
-  border-radius: 0;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #5a5a5a;
-}
-
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
+ 
+/* Scrollbars: VS Code style */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #424242; }
+::-webkit-scrollbar-thumb:hover { background: #5a5a5a; }
+::-webkit-scrollbar-corner { background: transparent; }
+ 
+/* Thin scrollbar variant */
+.scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+ 
 /* Panel resize handle */
 [data-panel-resize-handle-id] {
   transition: background-color 0.1s;
 }
-
+ 
 /* xterm overrides */
-.xterm-viewport::-webkit-scrollbar {
-  width: 8px;
+.xterm-viewport::-webkit-scrollbar { width: 8px; }
+.xterm-viewport::-webkit-scrollbar-thumb { background: #424242; }
+ 
+/* Context menu item */
+.ctx-item {
+  @apply flex items-center gap-2 px-3 py-1.5 text-[13px] text-ide-text 
+         hover:bg-[#094771] cursor-pointer outline-none transition-colors;
 }
-
-.xterm-viewport::-webkit-scrollbar-thumb {
-  background: #424242;
+ 
+/* Range input thumb */
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #007fd4;
+  cursor: pointer;
+  margin-top: -6px;
 }
+input[type='range']::-webkit-slider-runnable-track {
+  height: 3px;
+  background: #3e3e3e;
+  border-radius: 2px;
+}
+input[type='range']:focus {
+  outline: none;
+}
+ 
+/* Monaco editor container: remove outline when focused */
+.monaco-editor .overflow-guard { outline: none !important; }
+ 
+/* Smooth fade for panels */
+@keyframes panelFade {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.panel-enter { animation: panelFade 0.15s ease-out; }

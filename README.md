@@ -1,6 +1,6 @@
 # Cloud IDE 🚀
 
-A premium, full-stack, browser-based Integrated Development Environment (IDE) designed for running Django, Flask, FastAPI, general Python projects, C/C++ compilation, Node.js, and web apps. It features a custom multi-model Monaco Editor, a low-latency interactive pseudo-terminal (PTY), process process-group process monitoring, live real-time log streaming, an integrated SQLite database browser & SQL query executor, split-pane live previews, and Source Control (Git) integration.
+A browser-based Integrated Development Environment (IDE) designed for Python projects, C/C++ compilation, Node.js, and web apps. It features a custom multi-model Monaco Editor, a low-latency interactive pseudo-terminal (PTY), process monitoring, live log streaming, an integrated SQLite database browser & SQL query executor, split-pane live previews, and Source Control (Git) integration.
 
 ---
 
@@ -12,11 +12,11 @@ A premium, full-stack, browser-based Integrated Development Environment (IDE) de
 * **Dynamic Code Runner (`F5` / Play Button)**: Auto-saves active tabs and automatically resolves execution working directories. Detects file extensions to compile/run:
   * **C++ (`.cpp`, `.cc`)**: Compiles with `g++ -Wall -O3` and runs binary.
   * **C (`.c`)**: Compiles with `gcc -Wall -O3` and runs binary.
-  * **Python (`.py`)**: Executes script with unbuffered output `python3 -u` (automatically invokes `manage.py runserver` if `manage.py` is open).
+  * **Python (`.py`)**: Executes script with unbuffered output `python3 -u`.
   * **Node.js, Go, Rust, and Shell Scripts**: Runs appropriate runtime tools dynamically.
 * **SQLite Database Viewer**: Instantly detects SQLite databases in the workspace. Provides a structured table schema inspector, table data browser, and an interactive query panel to run custom SQL queries.
 * **Git Integration**: Clone public repositories into your workspace, view modified file diffs in the sidebar, stage and commit changes, and inspect the repository history directly from the GUI.
-* **Live Web Preview**: Test your web server using an integrated split-pane iframe previewer with quick-port switcher shortcuts (e.g. `:8000`, `:8001`, `:8080`).
+* **Live Web Preview**: Test your web server using an integrated split-pane iframe previewer with quick-port switcher shortcuts (e.g. `:3000`, `:8000`, `:8080`).
 
 ---
 
@@ -162,7 +162,7 @@ model = monacoHook.editor.createModel(
 * **Auto-Closing Brackets**: Autocomplete snippets, tab indentations, and parentheses matching execute natively inside the Monaco sandbox, maintaining instant, lag-free UI typing.
 
 ### 2. Process Group Sandboxing (`os.setsid`)
-FastAPI executes commands in shell mode (`shell=True`), launching a process tree. In default systems, killing the parent shell leaves the child script (like a Django server on port `8001`) running as a zombie. 
+FastAPI executes commands in shell mode (`shell=True`), launching a process tree. In default systems, killing the parent shell leaves the child script running as a zombie. 
 * Cloud IDE executes subprocesses inside their own process group by setting `preexec_fn=os.setsid` at launch.
 * When you terminate or restart an execution, the backend terminates the **entire process group** using `os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)`. This safely releases any allocated sockets and cleans up all descendants.
 

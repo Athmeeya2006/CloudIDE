@@ -18,7 +18,6 @@ WORKDIR /app
 
 # Install Python deps for common project types
 RUN pip install --no-cache-dir \
-    django \
     flask \
     fastapi \
     uvicorn \

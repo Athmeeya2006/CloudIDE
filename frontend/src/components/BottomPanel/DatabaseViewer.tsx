@@ -267,7 +267,7 @@ function SchemaTable({ schema }: { schema: DbColumn[] }) {
             <td className="px-3 py-1 text-[#9cdcfe] font-medium">{col.name}</td>
             <td className="px-3 py-1 text-[#4ec9b0]">{col.type}</td>
             <td className="px-3 py-1">{col.notnull ? <span className="text-ide-red">YES</span> : <span className="text-ide-text-dim">NO</span>}</td>
-            <td className="px-3 py-1 text-ide-text-dim">{col.dflt_value ?? '—'}</td>
+            <td className="px-3 py-1 text-ide-text-dim">{col.dflt_value ?? '-'}</td>
             <td className="px-3 py-1">{col.pk ? <span className="text-ide-yellow">🔑</span> : null}</td>
           </tr>
         ))}
@@ -322,7 +322,7 @@ function QueryRunner({
                 onRun();
               }
             }}
-            placeholder="SELECT * FROM users LIMIT 100;    (Ctrl+Enter to run — read only)"
+            placeholder="SELECT * FROM users LIMIT 100;    (Ctrl+Enter to run - read only)"
             rows={3}
             className="w-full bg-ide-bg text-ide-text text-[12px] font-mono px-3 py-2 border border-ide-border focus:border-ide-accent outline-none resize-none placeholder:text-ide-text-dim"
           />

@@ -3,10 +3,9 @@ import { RefreshCw, ExternalLink, X, Globe, AlertCircle } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
 import { useProcessStore } from '../../stores/processStore';
 
-const DEFAULT_PORTS = [8001, 8000, 3000, 5000, 4000];
+const DEFAULT_PORTS = [8000, 3000, 5000, 4000];
 const PORT_LABELS: Record<number, string> = {
-  8001: 'Django/Flask/FastAPI',
-  8000: 'Alt backend',
+  8000: 'API Backend',
   3000: 'Node/React',
   5000: 'Flask',
   4000: 'Dev',
@@ -20,7 +19,7 @@ export function PreviewPanel() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const runningProcess = processes.find(p => p.status === 'running');
-  const activeUrl = previewUrl || (runningProcess ? `http://localhost:8001` : '');
+  const activeUrl = previewUrl || (runningProcess ? `http://localhost:3000` : '');
 
   const reload = () => {
     setError(false);
@@ -49,7 +48,7 @@ export function PreviewPanel() {
             value={customUrl || activeUrl}
             onChange={e => setCustomUrl(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && navigate(customUrl || activeUrl)}
-            placeholder="http://localhost:8001"
+            placeholder="http://localhost:3000"
             className="flex-1 bg-transparent text-ide-text text-[12px] outline-none placeholder:text-ide-text-dim"
           />
         </div>
@@ -115,7 +114,7 @@ function NoPreview({ onOpen }: { onOpen: (url: string) => void }) {
         <div className="text-[12px]">Start your server first, then preview it here</div>
       </div>
       <div className="flex flex-col gap-1.5 w-48">
-        {[8001, 3000, 5000].map(port => (
+        {[8000, 3000, 5000].map(port => (
           <button
             key={port}
             onClick={() => onOpen(`http://localhost:${port}`)}

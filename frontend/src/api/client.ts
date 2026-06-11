@@ -24,7 +24,7 @@ api.interceptors.response.use(
   (r) => r,
   (err) => {
     if (err.code === 'ECONNABORTED') {
-      err.message = 'Request timed out — is the backend running?';
+      err.message = 'Request timed out. Is the backend running?';
     }
     return Promise.reject(err);
   },

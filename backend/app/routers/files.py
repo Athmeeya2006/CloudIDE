@@ -90,7 +90,7 @@ async def read_file(path: str):
             content = await f.read()
         return {"path": path, "content": content, "encoding": "utf-8"}
     except UnicodeDecodeError:
-        return {"path": path, "content": "", "encoding": "binary", "error": "Binary file — cannot display"}
+        return {"path": path, "content": "", "encoding": "binary", "error": "Binary file: cannot display"}
 
 
 class CreateBody(BaseModel):

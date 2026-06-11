@@ -12,9 +12,6 @@ function getRunConfig(activeTabPath: string, workspace: string): { command: stri
   const ext = filename.split('.').pop()?.toLowerCase() ?? '';
   const base = filename.substring(0, filename.lastIndexOf('.')) || filename;
 
-  if (filename === 'manage.py') {
-    return { command: 'python3 manage.py runserver 0.0.0.0:8001', displayName: 'Django Server', cwd: fileDir };
-  }
   if (filename === 'package.json') {
     return { command: 'npm run dev', displayName: 'npm dev', cwd: fileDir };
   }
@@ -58,7 +55,7 @@ export function EditorArea() {
     const config = getRunConfig(path, ws);
     if (!config) {
       const ext = path.split('.').pop()?.toLowerCase() ?? '';
-      notify(`Running .${ext} files is not supported — use the terminal`, 'error');
+      notify(`Running .${ext} files is not supported. Use the terminal`, 'error');
       return;
     }
 
@@ -77,9 +74,9 @@ export function EditorArea() {
       window.dispatchEvent(event);
       notify(`Running in terminal`, 'success');
     }, 100);
-  }, []); // intentionally empty — reads from store directly
+  }, []);
 
-  // F5 — always reads fresh state via callback
+  // F5 shortcut
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'F5' && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
@@ -96,7 +93,7 @@ export function EditorArea() {
 
   return (
     <div className="h-full flex flex-col bg-ide-bg overflow-hidden">
-      {/* Toolbar — only when tabs are open */}
+      {/* Toolbar */}
       {openTabs.length > 0 && (
         <div className="flex items-center justify-between px-3 py-1 bg-[#252526] border-b border-ide-border shrink-0 min-h-[32px]">
           <Breadcrumb path={activeTabPath} />
