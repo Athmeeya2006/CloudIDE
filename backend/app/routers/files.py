@@ -1,9 +1,11 @@
+import mimetypes
 import os
 import shutil
 from pathlib import Path
 
 import aiofiles
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.security import SKIP_DIRS, safe_join, safe_workspace, workspace_root
@@ -122,6 +124,68 @@ async def read_file(path: str):
         return {"path": path, "content": content, "encoding": "utf-8"}
     except UnicodeDecodeError:
         return {"path": path, "content": "", "encoding": "binary", "error": "Binary file: cannot display"}
+
+
+@router.get("/raw/{full_path:path}")
+async def raw_file(full_path: str):
+    """Serve a workspace file verbatim with a guessed content type.
+
+    The URL path mirrors the file path, so an HTML page served here can use
+    ordinary relative links (``style.css``, ``js/app.js``) and they resolve
+    correctly — which is what makes the static "Preview" of an index.html work
+    without running a server.
+    """
+    target = safe_join(full_path)
+    if not target.exists() or target.is_dir():
+        raise HTTPException(404, "Not found")
+    media, _ = mimetypes.guess_type(target.name)
+    return FileResponse(
+        target,
+        media_type=media or "application/octet-stream",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@router.post("/upload")
+async def upload_files(
+    files: list[UploadFile] = File(...),
+    workspace: str = Form("default"),
+    dest: str = Form(""),
+):
+    """Upload one or more files (or a whole folder) from the user's computer.
+
+    For folder uploads the browser sends each file's relative path as its
+    filename (via ``webkitRelativePath``), so the directory structure is
+    recreated under ``dest``.
+    """
+    ws = safe_workspace(workspace)
+    base = safe_join(ws, dest)  # target directory, validated inside the root
+    base_resolved = base.resolve()
+    written = []
+    for f in files:
+        rel = (f.filename or "").replace("\x00", "").lstrip("/")
+        if not rel:
+            continue
+        target = (base / rel).resolve()
+        # Each uploaded file must stay within the target directory.
+        try:
+            target.relative_to(base_resolved)
+        except ValueError:
+            raise HTTPException(403, "Access denied")
+        if target.is_dir():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        async with aiofiles.open(target, "wb") as out:
+            while True:
+                chunk = await f.read(1024 * 1024)
+                if not chunk:
+                    break
+                await out.write(chunk)
+        await f.close()
+        written.append(str(target.relative_to(workspace_root())))
+    if not written:
+        raise HTTPException(400, "No files uploaded")
+    return {"status": "uploaded", "count": len(written), "files": written}
 
 
 class CreateBody(BaseModel):

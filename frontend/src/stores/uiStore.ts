@@ -29,6 +29,7 @@ interface UIStore {
   openBottom: (v?: BottomView) => void;
   setPreviewUrl: (url: string) => void;
   togglePreview: () => void;
+  openPreview: (url?: string) => void;
   openCloneDialog: () => void;
   closeCloneDialog: () => void;
   openNewFileDialog: (path: string, isDir?: boolean) => void;
@@ -85,6 +86,7 @@ export const useUIStore = create<UIStore>((set) => ({
   openBottom: (v) => set(s => ({ bottomOpen: true, bottomView: v ?? s.bottomView })),
   setPreviewUrl: (url) => set({ previewUrl: url }),
   togglePreview: () => set(s => ({ previewOpen: !s.previewOpen })),
+  openPreview: (url) => set(s => ({ previewOpen: true, previewUrl: url ?? s.previewUrl })),
   openCloneDialog: () => set({ cloneDialogOpen: true }),
   closeCloneDialog: () => set({ cloneDialogOpen: false }),
   openNewFileDialog: (path, isDir = false) =>

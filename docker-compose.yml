@@ -23,8 +23,10 @@ services:
     build:
       context: ./frontend
       args:
-        VITE_API_URL: http://localhost:8000
-        VITE_WS_URL: ws://localhost:8000
+        # Empty = same origin; nginx proxies /api (incl. WebSockets) to the backend.
+        # This works whether you open the IDE on localhost or a remote server IP.
+        VITE_API_URL: ""
+        VITE_WS_URL: ""
     container_name: cloud-ide-frontend
     ports:
       - "3000:80"

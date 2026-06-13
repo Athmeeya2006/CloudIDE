@@ -2,11 +2,12 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   ChevronRight, ChevronDown, FolderOpen, Folder,
   FilePlus, FolderPlus, RefreshCw, Trash2, Edit3, Copy, Plus,
+  Upload, FolderUp, Globe, ClipboardCopy,
 } from 'lucide-react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import { useFileStore } from '../../stores/fileStore';
 import { useUIStore } from '../../stores/uiStore';
-import { filesApi } from '../../api/client';
+import { filesApi, rawFileUrl } from '../../api/client';
 import { getFileIcon, cn } from '../../utils';
 import type { FileNode } from '../../types';
  
@@ -18,10 +19,44 @@ export function FileExplorer() {
   const { openNewFileDialog, openCloneDialog, notify } = useUIStore();
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['']));
   const [renaming, setRenaming] = useState<string | null>(null);
- 
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     loadWorkspaces();
   }, [loadWorkspaces]);
+
+  // <input webkitdirectory> isn't a standard React prop, so set it imperatively.
+  useEffect(() => {
+    if (folderInputRef.current) {
+      folderInputRef.current.setAttribute('webkitdirectory', '');
+      folderInputRef.current.setAttribute('directory', '');
+    }
+  }, []);
+
+  const handleUpload = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    const fd = new FormData();
+    fd.append('workspace', workspace);
+    fd.append('dest', '');
+    for (const file of Array.from(fileList)) {
+      const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+      fd.append('files', file, rel);
+    }
+    setUploading(true);
+    try {
+      const res = await filesApi.upload(fd);
+      await refreshTree();
+      notify(`Uploaded ${res.count} file${res.count !== 1 ? 's' : ''}`, 'success');
+    } catch (e: any) {
+      notify(e.response?.data?.detail || 'Upload failed', 'error');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (folderInputRef.current) folderInputRef.current.value = '';
+    }
+  };
 
   const toggleDir = useCallback((path: string) => {
     setExpanded(prev => {
@@ -76,6 +111,14 @@ export function FileExplorer() {
             className="p-1 hover:text-ide-text text-ide-text-dim rounded hover:bg-ide-hover transition-colors">
             <FolderPlus size={13} />
           </button>
+          <button title="Upload Files" onClick={() => fileInputRef.current?.click()}
+            className={cn('p-1 hover:text-ide-text text-ide-text-dim rounded hover:bg-ide-hover transition-colors', uploading && 'animate-pulse text-ide-accent')}>
+            <Upload size={13} />
+          </button>
+          <button title="Upload Folder" onClick={() => folderInputRef.current?.click()}
+            className="p-1 hover:text-ide-text text-ide-text-dim rounded hover:bg-ide-hover transition-colors">
+            <FolderUp size={13} />
+          </button>
           <button title="Clone Repository" onClick={openCloneDialog}
             className="p-1 hover:text-ide-text text-ide-text-dim rounded hover:bg-ide-hover transition-colors text-[11px] leading-none">
             ⎇
@@ -87,6 +130,21 @@ export function FileExplorer() {
         </div>
       </div>
  
+      {/* Hidden inputs that back the Upload buttons */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={e => handleUpload(e.target.files)}
+      />
+      <input
+        ref={folderInputRef}
+        type="file"
+        className="hidden"
+        onChange={e => handleUpload(e.target.files)}
+      />
+
       <div className="flex-1 overflow-y-auto py-1">
         {loading && !fileTree ? (
           <div className="px-4 py-6 text-ide-text-dim text-[12px] text-center">Loading…</div>
@@ -120,10 +178,25 @@ interface TreeNodeProps {
  
 function TreeNode({ node, depth, expanded, renaming, onToggle, onRenameStart, onRenameEnd }: TreeNodeProps) {
   const { openFile, deleteFile, renameFile } = useFileStore();
-  const { openNewFileDialog, notify } = useUIStore();
+  const { openNewFileDialog, notify, openPreview } = useUIStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const isOpen = expanded.has(node.path);
   const isDir  = node.type === 'directory';
+  const isHtml = /\.html?$/i.test(node.name);
+
+  const handleCopyPath = async () => {
+    try {
+      await navigator.clipboard.writeText(node.path);
+      notify('Path copied to clipboard', 'success');
+    } catch {
+      notify(node.path, 'info');
+    }
+  };
+
+  const handlePreview = () => {
+    openPreview(rawFileUrl(node.path));
+    notify(`Previewing ${node.name}`, 'info');
+  };
  
   const handleRename = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -231,6 +304,14 @@ function TreeNode({ node, depth, expanded, renaming, onToggle, onRenameStart, on
  
       <ContextMenu.Portal>
         <ContextMenu.Content className="bg-[#252526] border border-ide-border shadow-xl py-1 min-w-[180px] z-50 animate-fade-in">
+          {isHtml && (
+            <>
+              <ContextMenu.Item className="ctx-item" onClick={handlePreview}>
+                <Globe size={13} /> Open in Preview
+              </ContextMenu.Item>
+              <ContextMenu.Separator className="my-1 h-px bg-ide-border" />
+            </>
+          )}
           {isDir && (
             <>
               <ContextMenu.Item
@@ -248,8 +329,12 @@ function TreeNode({ node, depth, expanded, renaming, onToggle, onRenameStart, on
               <ContextMenu.Separator className="my-1 h-px bg-ide-border" />
             </>
           )}
+          <ContextMenu.Item className="ctx-item" onClick={handleCopyPath}>
+            <ClipboardCopy size={13} /> Copy Path
+          </ContextMenu.Item>
           {depth > 0 && (
             <>
+              <ContextMenu.Separator className="my-1 h-px bg-ide-border" />
               <ContextMenu.Item className="ctx-item" onClick={() => onRenameStart(node.path)}>
                 <Edit3 size={13} /> Rename
               </ContextMenu.Item>

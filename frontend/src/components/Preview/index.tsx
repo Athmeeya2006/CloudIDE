@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { RefreshCw, ExternalLink, X, Globe, AlertCircle } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
 import { useProcessStore } from '../../stores/processStore';
+import { rawFileUrl } from '../../api/client';
 
 const DEFAULT_PORTS = [8000, 3000, 5000, 4000];
 const PORT_LABELS: Record<number, string> = {
@@ -30,7 +31,14 @@ export function PreviewPanel() {
 
   const navigate = (url: string) => {
     setError(false);
-    setPreviewUrl(url);
+    const v = url.trim();
+    // A workspace path (e.g. "default/index.html") is served as a static file;
+    // anything starting with http(s):// or "/" is used as-is (a running server).
+    if (v && !/^https?:\/\//i.test(v) && !v.startsWith('/')) {
+      setPreviewUrl(rawFileUrl(v));
+    } else {
+      setPreviewUrl(v);
+    }
   };
 
   const openExternal = () => {
@@ -48,7 +56,7 @@ export function PreviewPanel() {
             value={customUrl || activeUrl}
             onChange={e => setCustomUrl(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && navigate(customUrl || activeUrl)}
-            placeholder="http://localhost:3000"
+            placeholder="localhost:5000  or  default/index.html"
             className="flex-1 bg-transparent text-ide-text text-[12px] outline-none placeholder:text-ide-text-dim"
           />
         </div>

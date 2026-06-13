@@ -191,3 +191,90 @@ async def test_workspaces_create_invalid_name():
         for bad in ["../evil", "a/b", ".."]:
             r = await ac.post("/api/files/workspaces", json={"name": bad})
             assert r.status_code == 400, bad
+
+
+@pytest.mark.asyncio
+async def test_raw_file_serving_html():
+    async with client() as ac:
+        await ac.post("/api/files/write", json={
+            "path": "default/site/index.html",
+            "content": "<h1>Hello Preview</h1>",
+        })
+        r = await ac.get("/api/files/raw/default/site/index.html")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+        assert "Hello Preview" in r.text
+
+
+@pytest.mark.asyncio
+async def test_raw_file_content_types():
+    async with client() as ac:
+        await ac.post("/api/files/write", json={"path": "default/s/style.css", "content": "body{}"})
+        await ac.post("/api/files/write", json={"path": "default/s/app.js", "content": "console.log(1)"})
+        css = await ac.get("/api/files/raw/default/s/style.css")
+        js = await ac.get("/api/files/raw/default/s/app.js")
+        assert "text/css" in css.headers["content-type"]
+        assert "javascript" in js.headers["content-type"]
+
+
+@pytest.mark.asyncio
+async def test_raw_file_missing_and_traversal():
+    async with client() as ac:
+        assert (await ac.get("/api/files/raw/default/nope.html")).status_code == 404
+        # %2e%2e path traversal stays inside the workspace root
+        r = await ac.get("/api/files/raw/../../../etc/passwd")
+        assert r.status_code in (403, 404)
+
+
+@pytest.mark.asyncio
+async def test_upload_single_file():
+    async with client() as ac:
+        r = await ac.post(
+            "/api/files/upload",
+            files=[("files", ("notes.txt", b"uploaded content", "text/plain"))],
+            data={"workspace": "default", "dest": ""},
+        )
+        assert r.status_code == 200
+        assert r.json()["count"] == 1
+        read = await ac.get("/api/files/read", params={"path": "default/notes.txt"})
+        assert read.json()["content"] == "uploaded content"
+
+
+@pytest.mark.asyncio
+async def test_upload_folder_recreates_structure():
+    async with client() as ac:
+        r = await ac.post(
+            "/api/files/upload",
+            files=[
+                ("files", ("proj/index.html", b"<h1>hi</h1>", "text/html")),
+                ("files", ("proj/css/main.css", b"body{}", "text/css")),
+            ],
+            data={"workspace": "default", "dest": ""},
+        )
+        assert r.status_code == 200
+        assert r.json()["count"] == 2
+        assert (await ac.get("/api/files/read", params={"path": "default/proj/index.html"})).status_code == 200
+        assert (await ac.get("/api/files/read", params={"path": "default/proj/css/main.css"})).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_upload_into_subfolder_dest():
+    async with client() as ac:
+        r = await ac.post(
+            "/api/files/upload",
+            files=[("files", ("a.txt", b"x", "text/plain"))],
+            data={"workspace": "default", "dest": "uploads"},
+        )
+        assert r.status_code == 200
+        assert (await ac.get("/api/files/read", params={"path": "default/uploads/a.txt"})).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_upload_traversal_blocked():
+    async with client() as ac:
+        r = await ac.post(
+            "/api/files/upload",
+            files=[("files", ("../escape.txt", b"x", "text/plain"))],
+            data={"workspace": "default", "dest": ""},
+        )
+        assert r.status_code == 403

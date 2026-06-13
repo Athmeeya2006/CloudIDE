@@ -58,6 +58,13 @@ describe('uiStore', () => {
     expect(useUIStore.getState().newFileIsDir).toBe(true);
   });
 
+  it('openPreview opens the preview panel and sets the url', () => {
+    useUIStore.setState({ previewOpen: false, previewUrl: '' });
+    useUIStore.getState().openPreview('/api/files/raw/default/index.html');
+    expect(useUIStore.getState().previewOpen).toBe(true);
+    expect(useUIStore.getState().previewUrl).toBe('/api/files/raw/default/index.html');
+  });
+
   it('runInTerminal queues a command and reveals the terminal', () => {
     useUIStore.setState({ bottomOpen: false, bottomView: 'logs', pendingRun: null });
     useUIStore.getState().runInTerminal('echo hi');

@@ -17,6 +17,13 @@ function getWsBase(): string {
 export const WS_BASE = getWsBase();
 const BASE = import.meta.env.VITE_API_URL || '';
 
+/** Absolute (or same-origin) URL that serves a workspace file verbatim — used
+ *  to preview static HTML/CSS/JS straight from the workspace. */
+export function rawFileUrl(path: string): string {
+  const encoded = path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+  return `${BASE}/api/files/raw/${encoded}`;
+}
+
 export const api = axios.create({
   baseURL: BASE,
   timeout: 30000,
@@ -66,6 +73,11 @@ export const filesApi = {
 
   createWorkspace: (name: string) =>
     api.post('/api/files/workspaces', { name }).then(r => r.data),
+
+  upload: (formData: FormData) =>
+    api.post('/api/files/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data),
 };
 
 // ---- Processes ----
