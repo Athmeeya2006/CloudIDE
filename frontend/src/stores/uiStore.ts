@@ -18,6 +18,7 @@ interface UIStore {
   gitChanges: number;
   editorSettings: EditorSettings;
   notification: { message: string; type: 'info' | 'error' | 'success'; id: number } | null;
+  pendingRun: { command: string; id: number } | null;
 
   setSidebarView: (v: SidebarView) => void;
   setBottomView: (v: BottomView) => void;
@@ -40,6 +41,8 @@ interface UIStore {
   setGitChanges: (n: number) => void;
   updateEditorSettings: (s: Partial<EditorSettings>) => void;
   notify: (message: string, type?: 'info' | 'error' | 'success') => void;
+  runInTerminal: (command: string) => void;
+  clearPendingRun: (id: number) => void;
 }
 
 const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
@@ -52,6 +55,7 @@ const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
 };
 
 let notifCounter = 0;
+let runCounter = 0;
 
 export const useUIStore = create<UIStore>((set) => ({
   sidebarView: 'explorer',
@@ -70,6 +74,7 @@ export const useUIStore = create<UIStore>((set) => ({
   gitChanges: 0,
   editorSettings: DEFAULT_EDITOR_SETTINGS,
   notification: null,
+  pendingRun: null,
 
   setSidebarView: (v) => set({ sidebarView: v }),
   setBottomView: (v) => set({ bottomView: v }),
@@ -98,4 +103,15 @@ export const useUIStore = create<UIStore>((set) => ({
     set({ notification: { message, type, id } });
     setTimeout(() => set(s => s.notification?.id === id ? { notification: null } : s), 3500);
   },
+  // Queue a command for the interactive terminal. The TerminalPanel flushes it
+  // as soon as its WebSocket is connected, so the command is never dropped due
+  // to a panel-open / socket-connect race. Always reveals the terminal.
+  runInTerminal: (command) =>
+    set({
+      pendingRun: { command, id: ++runCounter },
+      bottomOpen: true,
+      bottomView: 'terminal',
+    }),
+  clearPendingRun: (id) =>
+    set(s => (s.pendingRun?.id === id ? { pendingRun: null } : s)),
 }));

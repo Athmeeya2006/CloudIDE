@@ -13,8 +13,9 @@ export function TerminalPanel() {
   const termRef      = useRef<Terminal | null>(null);
   const wsRef        = useRef<WebSocket | null>(null);
   const fitAddonRef  = useRef<FitAddon | null>(null);
+  const lastRunIdRef = useRef<number>(0);
   const { workspace } = useFileStore();
-  const { notify }    = useUIStore();
+  const { notify, pendingRun, clearPendingRun } = useUIStore();
   const [sessionId]   = useState(() => `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`);
   const [connected, setConnected] = useState(false);
  
@@ -106,24 +107,32 @@ export function TerminalPanel() {
     const ro = new ResizeObserver(() => sendResize());
     if (containerRef.current) ro.observe(containerRef.current);
  
-    const handleRunInTerminal = (e: Event) => {
-      const cmd = (e as CustomEvent).detail?.command;
-      if (cmd && ws.readyState === WebSocket.OPEN) {
-        ws.send('\x03');
-        setTimeout(() => {
-          ws.send(cmd + '\r');
-        }, 150);
-      }
-    };
-    window.addEventListener('run-in-terminal', handleRunInTerminal);
- 
     return () => {
       ro.disconnect();
-      window.removeEventListener('run-in-terminal', handleRunInTerminal);
       ws.close();
       term.dispose();
     };
   }, [workspace, sessionId]);
+
+  // Flush a queued "Run" command once the socket is connected. Using the store
+  // (instead of a fire-and-forget window event) means the command is never lost
+  // to a panel-open / socket-connect race — it runs as soon as we're ready.
+  useEffect(() => {
+    if (!pendingRun || !connected) return;
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (lastRunIdRef.current === pendingRun.id) return;
+    lastRunIdRef.current = pendingRun.id;
+    const { command, id } = pendingRun;
+    ws.send('\x03'); // interrupt anything currently running at the prompt
+    const t = setTimeout(() => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(command + '\r');
+      }
+      clearPendingRun(id);
+    }, 120);
+    return () => clearTimeout(t);
+  }, [pendingRun, connected, clearPendingRun]);
  
   return (
     <div className="w-full h-full flex flex-col bg-[#1e1e1e] overflow-hidden">

@@ -32,6 +32,22 @@ def test_terminal_ws_runs_command():
         assert b"terminal-marker-123" in collected
 
 
+def test_terminal_ws_run_button_pattern(tmp_path):
+    # Reproduce exactly what the front-end "Run" button sends: a cd into
+    # $WORKSPACE_DIR followed by the run command, terminated with CR.
+    (tmp_path / "default").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "default" / "run_target.py").write_text("print('RUN_RESULT', 2 + 2)\n")
+    with TestClient(app) as c:
+        with c.websocket_connect("/api/terminal/ws/run-sess?cwd=default") as ws:
+            ws.send_bytes(b'cd "$WORKSPACE_DIR/." && python3 -u "run_target.py"\r')
+            collected = b""
+            for _ in range(80):
+                collected += ws.receive_bytes()
+                if b"RUN_RESULT 4" in collected:
+                    break
+        assert b"RUN_RESULT 4" in collected
+
+
 def test_terminal_ws_rejects_bad_cwd():
     disconnected = False
     try:

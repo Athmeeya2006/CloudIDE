@@ -8,6 +8,7 @@ beforeEach(() => {
     bottomView: 'terminal',
     sidebarView: 'explorer',
     notification: null,
+    pendingRun: null,
     editorSettings: {
       fontSize: 14, tabSize: 2, wordWrap: false,
       minimap: true, lineNumbers: true, formatOnSave: false,
@@ -55,5 +56,31 @@ describe('uiStore', () => {
     expect(useUIStore.getState().newFileDialogOpen).toBe(true);
     expect(useUIStore.getState().newFilePath).toBe('default/src/');
     expect(useUIStore.getState().newFileIsDir).toBe(true);
+  });
+
+  it('runInTerminal queues a command and reveals the terminal', () => {
+    useUIStore.setState({ bottomOpen: false, bottomView: 'logs', pendingRun: null });
+    useUIStore.getState().runInTerminal('echo hi');
+    const s = useUIStore.getState();
+    expect(s.pendingRun?.command).toBe('echo hi');
+    expect(s.bottomOpen).toBe(true);
+    expect(s.bottomView).toBe('terminal');
+  });
+
+  it('runInTerminal assigns a fresh id each call (so identical commands re-run)', () => {
+    useUIStore.getState().runInTerminal('python3 x.py');
+    const first = useUIStore.getState().pendingRun!.id;
+    useUIStore.getState().runInTerminal('python3 x.py');
+    const second = useUIStore.getState().pendingRun!.id;
+    expect(second).not.toBe(first);
+  });
+
+  it('clearPendingRun only clears the matching id', () => {
+    useUIStore.getState().runInTerminal('first');
+    const id = useUIStore.getState().pendingRun!.id;
+    useUIStore.getState().clearPendingRun(id + 999);
+    expect(useUIStore.getState().pendingRun).not.toBeNull();
+    useUIStore.getState().clearPendingRun(id);
+    expect(useUIStore.getState().pendingRun).toBeNull();
   });
 });

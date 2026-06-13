@@ -1,45 +1,14 @@
 import { useEffect, useCallback } from 'react';
 import { EditorTabs } from './EditorTabs';
 import { MonacoEditor } from './MonacoEditor';
+import { getRunConfig, buildRunCommand } from './runConfig';
 import { useFileStore } from '../../stores/fileStore';
 import { useUIStore } from '../../stores/uiStore';
 import { Play, Settings } from 'lucide-react';
 
-function getRunConfig(activeTabPath: string, workspace: string): { command: string; displayName: string; cwd: string } | null {
-  const parts = activeTabPath.split('/');
-  const filename = parts[parts.length - 1];
-  const fileDir = parts.slice(0, -1).join('/') || workspace;
-  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-  const base = filename.substring(0, filename.lastIndexOf('.')) || filename;
-
-  if (filename === 'package.json') {
-    return { command: 'npm run dev', displayName: 'npm dev', cwd: fileDir };
-  }
-
-  const runners: Record<string, { command: string; displayName: string }> = {
-    py:   { command: `python3 -u "${filename}"`,                      displayName: `Python: ${filename}` },
-    js:   { command: `node "${filename}"`,                             displayName: `Node: ${filename}` },
-    ts:   { command: `npx ts-node "${filename}"`,                      displayName: `TS-Node: ${filename}` },
-    cpp:  { command: `g++ -Wall -O2 -o "${base}" "${filename}" && "./${base}"`, displayName: `C++: ${filename}` },
-    cc:   { command: `g++ -Wall -O2 -o "${base}" "${filename}" && "./${base}"`, displayName: `C++: ${filename}` },
-    c:    { command: `gcc -Wall -O2 -o "${base}" "${filename}" && "./${base}"`, displayName: `C: ${filename}` },
-    go:   { command: `go run "${filename}"`,                           displayName: `Go: ${filename}` },
-    rs:   { command: `rustc "${filename}" -o "${base}" && "./${base}"`, displayName: `Rust: ${filename}` },
-    sh:   { command: `bash "${filename}"`,                             displayName: `Shell: ${filename}` },
-    bash: { command: `bash "${filename}"`,                             displayName: `Shell: ${filename}` },
-    rb:   { command: `ruby "${filename}"`,                             displayName: `Ruby: ${filename}` },
-    php:  { command: `php "${filename}"`,                              displayName: `PHP: ${filename}` },
-    java: { command: `javac "${filename}" && java "${base}"`,          displayName: `Java: ${filename}` },
-  };
-
-  const runner = runners[ext];
-  if (!runner) return null;
-  return { ...runner, cwd: fileDir };
-}
-
 export function EditorArea() {
-  const { openTabs, activeTabPath, workspace, saveActiveFile } = useFileStore();
-  const { openBottom, notify, openSettings } = useUIStore();
+  const { openTabs, activeTabPath, workspace } = useFileStore();
+  const { notify, openSettings } = useUIStore();
 
   const handleRun = useCallback(async () => {
     const { activeTabPath: path, workspace: ws } = useFileStore.getState();
@@ -48,33 +17,22 @@ export function EditorArea() {
     try {
       await useFileStore.getState().saveActiveFile();
     } catch {
-      notify('Failed to save before run', 'error');
+      // saveFile already surfaced a notification.
       return;
     }
 
-    const config = getRunConfig(path, ws);
-    if (!config) {
+    const run = buildRunCommand(path, ws);
+    if (!run) {
       const ext = path.split('.').pop()?.toLowerCase() ?? '';
       notify(`Running .${ext} files is not supported. Use the terminal`, 'error');
       return;
     }
 
-    openBottom('terminal');
-
-    const relDir = config.cwd.startsWith(ws + '/')
-      ? config.cwd.substring(ws.length + 1)
-      : (config.cwd === ws ? '.' : config.cwd);
-
-    const terminalCommand = `cd "$WORKSPACE_DIR/${relDir}" && ${config.command}`;
-
-    setTimeout(() => {
-      const event = new CustomEvent('run-in-terminal', {
-        detail: { command: terminalCommand }
-      });
-      window.dispatchEvent(event);
-      notify(`Running in terminal`, 'success');
-    }, 100);
-  }, []);
+    // Queue the command; the terminal flushes it once connected (and this also
+    // opens/reveals the terminal panel). No fragile timing assumptions.
+    useUIStore.getState().runInTerminal(run.command);
+    notify(`Running ${run.displayName}`, 'success');
+  }, [notify]);
 
   // F5 shortcut
   useEffect(() => {
