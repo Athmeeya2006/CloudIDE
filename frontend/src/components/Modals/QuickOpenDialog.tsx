@@ -6,7 +6,7 @@ import { useFileStore } from '../../stores/fileStore';
 import { getFileIcon, cn } from '../../utils';
 import type { FileNode } from '../../types';
 
-function getAllFiles(node: FileNode | null, results: FileNode[] = []): FileNode[] {
+export function getAllFiles(node: FileNode | null, results: FileNode[] = []): FileNode[] {
   if (!node) return results;
   if (node.type === 'file') results.push(node);
   else if (node.children) node.children.forEach(c => getAllFiles(c, results));
@@ -19,7 +19,7 @@ interface MatchResult {
   nameMatch: boolean;
 }
 
-function scoreMatch(file: FileNode, pattern: string): number {
+export function scoreMatch(file: FileNode, pattern: string): number {
   if (!pattern) return 1;
   const p = pattern.toLowerCase();
   const name = file.name.toLowerCase();

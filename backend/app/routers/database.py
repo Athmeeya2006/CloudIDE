@@ -1,13 +1,20 @@
-import sqlite3
 import os
 import re
+import sqlite3
 from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.config import settings
+from app.security import SKIP_DIRS, safe_join, safe_workspace, workspace_root
 
 router = APIRouter(prefix="/api/database", tags=["database"])
+
+_WRITE_KEYWORDS = frozenset({
+    "INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "TRUNCATE",
+    "REPLACE", "ATTACH", "DETACH", "PRAGMA", "VACUUM", "REINDEX", "BEGIN",
+    "COMMIT", "ROLLBACK", "SAVEPOINT", "RELEASE", "GRANT", "ANALYZE",
+})
 
 
 def validate_table_name(name: str) -> str:
@@ -18,32 +25,43 @@ def validate_table_name(name: str) -> str:
 
 
 def resolve_db(db_path: str) -> Path:
-    base = settings.workspace_path.resolve()
-    full = (base / db_path.lstrip("/")).resolve()
-    if not str(full).startswith(str(base)):
-        raise HTTPException(403, "Access denied")
+    full = safe_join(db_path)
     if not full.exists():
         raise HTTPException(404, f"Database not found: {db_path}")
+    if not full.is_file():
+        raise HTTPException(400, "Not a file")
     return full
 
 
-def get_conn(db_path: str) -> sqlite3.Connection:
+def get_conn(db_path: str, read_only: bool = False) -> sqlite3.Connection:
     full = resolve_db(db_path)
-    conn = sqlite3.connect(str(full))
+    if read_only:
+        conn = sqlite3.connect(f"{full.as_uri()}?mode=ro", uri=True)
+    else:
+        conn = sqlite3.connect(str(full))
     conn.row_factory = sqlite3.Row
     return conn
 
 
 @router.get("/list")
 async def list_databases(workspace: str = "default"):
-    base = settings.workspace_path / workspace
+    ws = safe_workspace(workspace)
+    base = workspace_root() / ws
     dbs = []
     for root, dirs, files in os.walk(base):
-        dirs[:] = [d for d in dirs if d not in ("node_modules", "__pycache__", ".git", "venv")]
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in SKIP_DIRS]
         for f in files:
             if f.endswith((".db", ".sqlite", ".sqlite3")):
                 full = Path(root) / f
-                dbs.append({"name": f, "path": str(full.relative_to(settings.workspace_path)), "size": full.stat().st_size})
+                try:
+                    size = full.stat().st_size
+                except OSError:
+                    continue
+                dbs.append({
+                    "name": f,
+                    "path": str(full.relative_to(workspace_root())),
+                    "size": size,
+                })
     return {"databases": dbs}
 
 
@@ -51,7 +69,7 @@ async def list_databases(workspace: str = "default"):
 async def list_tables(db_path: str):
     conn = None
     try:
-        conn = get_conn(db_path)
+        conn = get_conn(db_path, read_only=True)
         cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         tables = [row[0] for row in cur.fetchall()]
         return {"tables": tables}
@@ -67,9 +85,11 @@ async def table_schema(db_path: str, table: str):
     table = validate_table_name(table)
     conn = None
     try:
-        conn = get_conn(db_path)
+        conn = get_conn(db_path, read_only=True)
         cur = conn.execute(f"PRAGMA table_info(\"{table}\")")
         cols = [dict(row) for row in cur.fetchall()]
+        if not cols:
+            raise HTTPException(404, f"Table not found: {table}")
         cur2 = conn.execute(f"PRAGMA index_list(\"{table}\")")
         indexes = [dict(row) for row in cur2.fetchall()]
         cur3 = conn.execute(f"SELECT COUNT(*) as cnt FROM \"{table}\"")
@@ -85,11 +105,11 @@ async def table_schema(db_path: str, table: str):
 @router.get("/rows")
 async def get_rows(db_path: str, table: str, limit: int = 100, offset: int = 0):
     table = validate_table_name(table)
-    if limit > 1000:
-        limit = 1000
+    limit = max(1, min(limit, 1000))
+    offset = max(0, offset)
     conn = None
     try:
-        conn = get_conn(db_path)
+        conn = get_conn(db_path, read_only=True)
         cur = conn.execute(f"SELECT * FROM \"{table}\" LIMIT ? OFFSET ?", (limit, offset))
         rows = [dict(row) for row in cur.fetchall()]
         cur2 = conn.execute(f"SELECT COUNT(*) FROM \"{table}\"")
@@ -109,14 +129,17 @@ class QueryBody(BaseModel):
 
 @router.post("/query")
 async def run_query(body: QueryBody):
-    sql_upper = body.sql.strip().upper()
-    BLOCKED = ("INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "TRUNCATE", "REPLACE")
-    for kw in BLOCKED:
-        if sql_upper.startswith(kw) or f" {kw} " in sql_upper:
-            raise HTTPException(400, f"Write operation '{kw}' not allowed in query viewer")
+    sql = body.sql.strip()
+    if not sql:
+        raise HTTPException(400, "Empty query")
+    # The connection below is opened read-only, so writes are impossible at the
+    # engine level. This check just returns a clearer message than a SQLite error.
+    first = re.match(r'\s*([A-Za-z]+)', sql)
+    if first and first.group(1).upper() in _WRITE_KEYWORDS:
+        raise HTTPException(400, f"Only read-only queries are allowed (got '{first.group(1).upper()}')")
     conn = None
     try:
-        conn = get_conn(body.db_path)
+        conn = get_conn(body.db_path, read_only=True)
         cur = conn.execute(body.sql)
         if cur.description:
             cols = [d[0] for d in cur.description]

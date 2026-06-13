@@ -131,7 +131,7 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
     os.makedirs(cwd, exist_ok=True)
 
     session = manager.create(session_id, cwd)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     async def read_loop():
         while True:
@@ -172,11 +172,16 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
                 is_ctrl = False
                 try:
                     ctrl = json.loads(msg["text"])
-                    if isinstance(ctrl, dict) and ctrl.get("type") == "resize":
-                        session.resize(int(ctrl["rows"]), int(ctrl["cols"]))
-                        is_ctrl = True
-                except Exception:
-                    pass
+                except (ValueError, TypeError):
+                    ctrl = None
+                if isinstance(ctrl, dict) and ctrl.get("type") == "resize":
+                    is_ctrl = True
+                    try:
+                        rows = max(1, min(int(ctrl.get("rows", 24)), 1000))
+                        cols = max(1, min(int(ctrl.get("cols", 80)), 1000))
+                        session.resize(rows, cols)
+                    except (ValueError, TypeError):
+                        pass
                 if not is_ctrl:
                     session.write(msg["text"].encode())
     except WebSocketDisconnect:

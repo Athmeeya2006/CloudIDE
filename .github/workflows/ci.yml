@@ -22,8 +22,7 @@ jobs:
       - name: Install deps
         run: |
           cd backend
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio httpx
+          pip install -r requirements-dev.txt
 
       - name: Ruff lint
         run: cd backend && ruff check .
@@ -48,6 +47,9 @@ jobs:
 
       - name: Type check
         run: cd frontend && npm run type-check
+
+      - name: Unit tests
+        run: cd frontend && npm test
 
   docker-build:
     name: Docker build check

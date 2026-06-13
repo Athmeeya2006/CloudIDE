@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import { FileNode, OpenTab } from '../types';
 import { filesApi } from '../api/client';
+import { useUIStore } from './uiStore';
 
 interface FileStore {
   workspace: string;
+  workspaces: string[];
   fileTree: FileNode | null;
   openTabs: OpenTab[];
   activeTabPath: string | null;
@@ -11,6 +13,9 @@ interface FileStore {
   error: string | null;
 
   refreshTree: () => Promise<void>;
+  loadWorkspaces: () => Promise<void>;
+  setWorkspace: (name: string) => Promise<void>;
+  createWorkspace: (name: string) => Promise<void>;
   openFile: (node: FileNode) => Promise<void>;
   closeTab: (path: string) => void;
   setActiveTab: (path: string) => void;
@@ -24,6 +29,7 @@ interface FileStore {
 
 export const useFileStore = create<FileStore>((set, get) => ({
   workspace: 'default',
+  workspaces: ['default'],
   fileTree: null,
   openTabs: [],
   activeTabPath: null,
@@ -40,6 +46,28 @@ export const useFileStore = create<FileStore>((set, get) => ({
     }
   },
 
+  loadWorkspaces: async () => {
+    try {
+      const data = await filesApi.listWorkspaces();
+      set({ workspaces: data.workspaces ?? ['default'] });
+    } catch {
+      set({ workspaces: ['default'] });
+    }
+  },
+
+  setWorkspace: async (name) => {
+    if (name === get().workspace) return;
+    // Open tabs are workspace-relative, so they no longer apply.
+    set({ workspace: name, openTabs: [], activeTabPath: null, fileTree: null });
+    await get().refreshTree();
+  },
+
+  createWorkspace: async (name) => {
+    await filesApi.createWorkspace(name);
+    await get().loadWorkspaces();
+    await get().setWorkspace(name);
+  },
+
   openFile: async (node) => {
     if (node.type === 'directory') return;
     const { openTabs } = get();
@@ -52,6 +80,13 @@ export const useFileStore = create<FileStore>((set, get) => ({
 
     try {
       const data = await filesApi.read(node.path);
+      if (data.encoding === 'binary' || data.error) {
+        useUIStore.getState().notify(
+          data.error || 'Cannot open binary file',
+          'error',
+        );
+        return;
+      }
       const tab: OpenTab = {
         path: node.path,
         name: node.name,
@@ -63,7 +98,9 @@ export const useFileStore = create<FileStore>((set, get) => ({
         activeTabPath: node.path,
       });
     } catch (e: any) {
-      set({ error: e.message });
+      const msg = e.response?.data?.detail || e.message || 'Failed to open file';
+      set({ error: msg });
+      useUIStore.getState().notify(msg, 'error');
     }
   },
 
@@ -96,12 +133,18 @@ export const useFileStore = create<FileStore>((set, get) => ({
   saveFile: async (path) => {
     const tab = get().openTabs.find(t => t.path === path);
     if (!tab) return;
-    await filesApi.write(path, tab.content);
-    set(state => ({
-      openTabs: state.openTabs.map(t =>
-        t.path === path ? { ...t, modified: false } : t,
-      ),
-    }));
+    try {
+      await filesApi.write(path, tab.content);
+      set(state => ({
+        openTabs: state.openTabs.map(t =>
+          t.path === path ? { ...t, modified: false } : t,
+        ),
+      }));
+    } catch (e: any) {
+      const msg = e.response?.data?.detail || e.message || 'Failed to save file';
+      useUIStore.getState().notify(msg, 'error');
+      throw e;
+    }
   },
 
   createFile: async (path, is_dir = false) => {

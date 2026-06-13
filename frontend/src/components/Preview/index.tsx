@@ -16,6 +16,7 @@ export function PreviewPanel() {
   const { processes } = useProcessStore();
   const [customUrl, setCustomUrl] = useState('');
   const [error, setError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const runningProcess = processes.find(p => p.status === 'running');
@@ -23,9 +24,8 @@ export function PreviewPanel() {
 
   const reload = () => {
     setError(false);
-    if (iframeRef.current) {
-      iframeRef.current.src = iframeRef.current.src;
-    }
+    // Remount the iframe; re-assigning the same src is unreliable cross-origin.
+    setReloadKey(k => k + 1);
   };
 
   const navigate = (url: string) => {
@@ -92,6 +92,7 @@ export function PreviewPanel() {
           <PreviewError url={activeUrl} onRetry={reload} />
         ) : (
           <iframe
+            key={reloadKey}
             ref={iframeRef}
             src={activeUrl}
             title="App Preview"

@@ -1,14 +1,20 @@
-from pathlib import Path
-from typing import Optional
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 import asyncio
 import logging
+import re
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from app.config import settings
 
 router = APIRouter(prefix="/api/git", tags=["git"])
 logger = logging.getLogger(__name__)
+
+# Accept the common, safe remote URL forms. Anything starting with "-" (option
+# injection) or an unknown scheme is rejected before reaching ``git``.
+_GIT_URL_RE = re.compile(r'^(https?://|git://|ssh://|git@[\w.-]+:)', re.IGNORECASE)
 
 
 def resolve_git_dir(workspace: str, folder: str = "") -> Path:
@@ -86,6 +92,10 @@ class CloneBody(BaseModel):
 
 @router.post("/clone")
 async def clone(body: CloneBody):
+    url = (body.url or "").replace('\x00', '').strip()
+    if not url or not _GIT_URL_RE.match(url):
+        raise HTTPException(400, "Invalid or unsupported repository URL")
+
     base = (settings.workspace_path / body.workspace.replace('\x00', '')).resolve()
     try:
         base.relative_to(settings.workspace_path.resolve())
@@ -96,7 +106,9 @@ async def clone(body: CloneBody):
     if '..' in clean_folder.split('/') or '..' in body.workspace.replace('\x00', '').split('/'):
         raise HTTPException(403, "Access denied")
 
-    folder = clean_folder or body.url.split("/")[-1].removesuffix(".git")
+    folder = clean_folder or url.split("/")[-1].removesuffix(".git")
+    folder = folder.strip() or "repo"
+    base.mkdir(parents=True, exist_ok=True)
     dest = (base / folder).resolve()
 
     try:
@@ -107,7 +119,8 @@ async def clone(body: CloneBody):
     if dest.exists():
         raise HTTPException(400, f"Folder '{folder}' already exists")
 
-    result = await run_git(["clone", body.url, str(dest)], str(base), timeout=120)
+    # "--" stops git from treating a hostile URL/dest as a flag.
+    result = await run_git(["clone", "--", url, str(dest)], str(base), timeout=120)
     if not result["ok"]:
         raise HTTPException(400, result["stderr"])
     return {"status": "cloned", "path": str(dest.relative_to(settings.workspace_path))}
@@ -140,7 +153,10 @@ async def _get_ahead_behind(cwd: str) -> dict:
     if result["ok"] and result["stdout"].strip():
         parts = result["stdout"].strip().split()
         if len(parts) == 2:
-            return {"ahead": int(parts[0]), "behind": int(parts[1])}
+            try:
+                return {"ahead": int(parts[0]), "behind": int(parts[1])}
+            except ValueError:
+                pass
     return {"ahead": 0, "behind": 0}
 
 
@@ -151,7 +167,7 @@ async def git_diff(workspace: str = "default", folder: str = "", file: str = "")
     if file:
         # Validate file path safety
         clean_file = file.replace('\x00', '')
-        if '..' in clean_file.split('/'):
+        if '..' in clean_file.split('/') or clean_file.startswith('-'):
             raise HTTPException(403, "Access denied")
 
         # Try unstaged diff first, then staged

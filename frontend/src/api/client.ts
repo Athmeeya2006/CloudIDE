@@ -7,8 +7,11 @@ function getWsBase(): string {
       .replace(/^https:/, 'wss:')
       .replace(/^http:/, 'ws:');
   }
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${window.location.host}`;
+  if (typeof window !== 'undefined' && window.location) {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${window.location.host}`;
+  }
+  return '';
 }
 
 export const WS_BASE = getWsBase();

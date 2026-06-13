@@ -1,67 +1,86 @@
 import os
 import shutil
 from pathlib import Path
+
 import aiofiles
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.config import settings
+from app.security import SKIP_DIRS, safe_join, safe_workspace, workspace_root
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
-SKIP_DIRS = frozenset({"node_modules", "__pycache__", ".git", "venv", ".venv", "dist", ".next", "build", ".cache"})
 BINARY_EXTS = frozenset({
-    "jpg","jpeg","png","gif","ico","svg","webp","bmp","tiff",
-    "woff","woff2","ttf","eot","otf",
-    "db","sqlite","sqlite3",
-    "zip","tar","gz","bz2","7z","rar",
-    "pdf","doc","docx","xls","xlsx","ppt","pptx",
-    "exe","dll","so","dylib","bin","o","a",
-    "mp3","mp4","wav","avi","mov","mkv",
-    "pyc","pyo","class",
+    "jpg", "jpeg", "png", "gif", "ico", "svg", "webp", "bmp", "tiff",
+    "woff", "woff2", "ttf", "eot", "otf",
+    "db", "sqlite", "sqlite3",
+    "zip", "tar", "gz", "bz2", "7z", "rar",
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+    "exe", "dll", "so", "dylib", "bin", "o", "a",
+    "mp3", "mp4", "wav", "avi", "mov", "mkv",
+    "pyc", "pyo", "class",
 })
+
+# Guard rails so a pathological workspace can never produce an unbounded tree
+# or read an enormous file into memory.
+MAX_TREE_NODES = 10_000
+MAX_TREE_DEPTH = 32
+MAX_READ_BYTES = 5 * 1024 * 1024  # 5 MB
 
 
 def resolve(path: str) -> Path:
-    base = settings.workspace_path.resolve()
-    clean = path.replace('\x00', '').lstrip('/')
-    if '..' in clean.split('/'):
-        raise HTTPException(403, "Access denied")
-    resolved = (base / clean).resolve()
-    try:
-        resolved.relative_to(base)
-    except ValueError:
-        raise HTTPException(403, "Access denied")
-    return resolved
+    """Resolve a workspace-relative path, rejecting traversal."""
+    return safe_join(path)
 
 
-def node(p: Path, base: Path) -> dict:
+def node(p: Path, base: Path, depth: int = 0, counter: list[int] | None = None) -> dict:
+    if counter is None:
+        counter = [0]
     rel = str(p.relative_to(base))
+    try:
+        st = p.stat()
+    except OSError:
+        st = None
+
     if p.is_dir():
-        try:
-            children = sorted(p.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))
-        except PermissionError:
-            children = []
+        children: list[dict] = []
+        if depth < MAX_TREE_DEPTH:
+            try:
+                entries = sorted(
+                    p.iterdir(),
+                    key=lambda x: (x.is_file(), x.name.lower()),
+                )
+            except OSError:
+                entries = []
+            for c in entries:
+                if counter[0] >= MAX_TREE_NODES:
+                    break
+                # Never descend into heavy / machine-generated directories.
+                if c.is_dir() and c.name in SKIP_DIRS:
+                    continue
+                counter[0] += 1
+                children.append(node(c, base, depth + 1, counter))
         return {
             "name": p.name,
             "path": rel,
             "type": "directory",
-            "children": [node(c, base) for c in children],
+            "children": children,
         }
     return {
         "name": p.name,
         "path": rel,
         "type": "file",
-        "size": p.stat().st_size,
-        "modified": p.stat().st_mtime,
+        "size": st.st_size if st else 0,
+        "modified": st.st_mtime if st else 0,
     }
 
 
 @router.get("/tree")
 async def get_tree(workspace: str = "default"):
-    base = settings.workspace_path / workspace
+    ws = safe_workspace(workspace)
+    base = workspace_root() / ws
     base.mkdir(parents=True, exist_ok=True)
-    return node(base, settings.workspace_path)
+    return node(base, workspace_root())
 
 
 class WriteBody(BaseModel):
@@ -72,6 +91,8 @@ class WriteBody(BaseModel):
 @router.post("/write")
 async def write_file(body: WriteBody):
     full = resolve(body.path)
+    if full.is_dir():
+        raise HTTPException(400, "Path is a directory")
     full.parent.mkdir(parents=True, exist_ok=True)
     async with aiofiles.open(full, "w", encoding="utf-8") as f:
         await f.write(body.content)
@@ -85,6 +106,16 @@ async def read_file(path: str):
         raise HTTPException(404, "File not found")
     if full.is_dir():
         raise HTTPException(400, "Path is a directory")
+    try:
+        if full.stat().st_size > MAX_READ_BYTES:
+            return {
+                "path": path,
+                "content": "",
+                "encoding": "binary",
+                "error": "File too large to display (over 5 MB)",
+            }
+    except OSError:
+        raise HTTPException(404, "File not found")
     try:
         async with aiofiles.open(full, "r", encoding="utf-8") as f:
             content = await f.read()
@@ -101,6 +132,8 @@ class CreateBody(BaseModel):
 @router.post("/create")
 async def create(body: CreateBody):
     full = resolve(body.path)
+    if full.exists():
+        raise HTTPException(409, "Path already exists")
     if body.is_dir:
         full.mkdir(parents=True, exist_ok=True)
     else:
@@ -120,6 +153,8 @@ async def rename(body: RenameBody):
     dst = resolve(body.new_path)
     if not src.exists():
         raise HTTPException(404, "Source not found")
+    if dst.exists():
+        raise HTTPException(409, "Destination already exists")
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(src), str(dst))
     return {"status": "renamed"}
@@ -128,6 +163,8 @@ async def rename(body: RenameBody):
 @router.delete("/delete")
 async def delete(path: str):
     full = resolve(path)
+    if full == workspace_root():
+        raise HTTPException(400, "Cannot delete the workspace root")
     if not full.exists():
         raise HTTPException(404, "Not found")
     if full.is_dir():
@@ -146,6 +183,10 @@ class CopyBody(BaseModel):
 async def copy(body: CopyBody):
     src = resolve(body.src)
     dst = resolve(body.dst)
+    if not src.exists():
+        raise HTTPException(404, "Source not found")
+    if dst.exists():
+        raise HTTPException(409, "Destination already exists")
     dst.parent.mkdir(parents=True, exist_ok=True)
     if src.is_dir():
         shutil.copytree(src, dst)
@@ -157,7 +198,9 @@ async def copy(body: CopyBody):
 @router.get("/search")
 async def search_files(query: str, workspace: str = "default", max_results: int = 50):
     """Search by filename."""
-    base = settings.workspace_path / workspace
+    ws = safe_workspace(workspace)
+    base = workspace_root() / ws
+    max_results = max(1, min(max_results, 500))
     results = []
     q = query.lower()
     for root, dirs, files_list in os.walk(base):
@@ -165,9 +208,9 @@ async def search_files(query: str, workspace: str = "default", max_results: int 
         for fname in files_list:
             if q in fname.lower():
                 full = Path(root) / fname
-                results.append(str(full.relative_to(settings.workspace_path)))
-            if len(results) >= max_results:
-                return {"results": results}
+                results.append(str(full.relative_to(workspace_root())))
+                if len(results) >= max_results:
+                    return {"results": results}
     return {"results": results}
 
 
@@ -184,7 +227,9 @@ async def grep_files(
     if len(query) > 200:
         raise HTTPException(400, "Query too long")
 
-    base = settings.workspace_path / workspace
+    ws = safe_workspace(workspace)
+    base = workspace_root() / ws
+    max_results = max(1, min(max_results, 2000))
     results = []
     search_q = query if case_sensitive else query.lower()
     truncated = False
@@ -210,7 +255,7 @@ async def grep_files(
                     for line_num, line in enumerate(f, 1):
                         check = line if case_sensitive else line.lower()
                         if search_q in check:
-                            rel_path = str(full.relative_to(settings.workspace_path))
+                            rel_path = str(full.relative_to(workspace_root()))
                             results.append({
                                 "path": rel_path,
                                 "name": fname,
@@ -236,21 +281,19 @@ class CreateWorkspaceBody(BaseModel):
 
 @router.get("/workspaces")
 async def get_workspaces():
-    base = settings.workspace_path.resolve()
+    base = workspace_root()
     try:
         dirs = [d.name for d in base.iterdir() if d.is_dir() and not d.name.startswith(".")]
         if "default" not in dirs:
             dirs.insert(0, "default")
         return {"workspaces": sorted(dirs, key=lambda x: (x != "default", x.lower()))}
-    except Exception:
+    except OSError:
         return {"workspaces": ["default"]}
 
 
 @router.post("/workspaces")
 async def create_workspace(body: CreateWorkspaceBody):
-    name = body.name.replace('\x00', '').strip()
-    if not name or '..' in name.split('/') or '/' in name:
-        raise HTTPException(400, "Invalid workspace name")
-    full = settings.workspace_path / name
+    name = safe_workspace(body.name)
+    full = workspace_root() / name
     full.mkdir(parents=True, exist_ok=True)
     return {"status": "created", "workspace": name}

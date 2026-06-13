@@ -67,8 +67,8 @@ graph TD
 * **Code Editor**: `@monaco-editor/react` (configured to support manual, multi-model editor instances).
 * **Terminal Engine**: `@xterm/xterm` with `@xterm/addon-fit`, `@xterm/addon-web-links`, and `@xterm/addon-unicode11`.
 * **Backend**: FastAPI (Python) + Uvicorn ASGI server.
-* **Backend Shells**: Standard PTY libraries (`pty`, `os`, `fcntl`) for WebSocket-based interactive shell sessions.
-* **Git Actions**: `GitPython` client library.
+* **Backend Shells**: Standard library PTY (`pty`, `os`, `fcntl`, `termios`) for WebSocket-based interactive shell sessions.
+* **Git Actions**: The system `git` binary, invoked via `asyncio.create_subprocess_exec` (no third-party Git client).
 
 ---
 
@@ -125,17 +125,17 @@ npm run dev
 
 | Variable | Default Value | Description |
 |:---|:---|:---|
-| `WORKSPACE_PATH` | `/workspaces` | Directory where all client workspace files reside. |
-| `ALLOWED_ORIGINS` | `["http://localhost:5173", "http://localhost:3000"]` | CORS origins permitted to access REST & WebSocket servers. |
+| `WORKSPACE_BASE` | `/workspaces` | Directory where all client workspace files reside. Falls back to `<repo>/workspaces` if not writable. |
+| `ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Comma-separated list of CORS origins permitted to access REST & WebSocket servers. |
 | `MAX_PROCESSES` | `10` | Maximum number of concurrent background tasks. |
 | `PORT` | `8000` | Port for the FastAPI server to bind to. |
 
-### Frontend Settings (`frontend/.env.local`)
+### Frontend Settings (`frontend/.env`)
 
 | Variable | Default Value | Description |
 |:---|:---|:---|
-| `VITE_API_URL` | *(empty, proxies locally via Vite)* | REST API URL configuration. |
-| `VITE_WS_URL` | `ws://localhost:8000` | WebSocket server URL. |
+| `VITE_API_URL` | `http://localhost:8000` | REST API base URL. Leave empty to use the same origin (e.g. behind the nginx reverse proxy). |
+| `VITE_WS_URL` | `ws://localhost:8000` | WebSocket base URL. Leave empty to derive `ws(s)://` from the page origin. |
 
 ---
 
@@ -222,8 +222,11 @@ The Cloud IDE environment is modular and designed to easily integrate new develo
 │   │       ├── terminal.py  # WebSocket interactive PTY router
 │   │       ├── processes.py # Subprocess management and logging socket
 │   │       ├── database.py  # SQLite visualizer & query executor
-│   │       └── git.py       # Source Control wrapper (GitPython)
-│   ├── requirements.txt     # Python requirements file
+│   │       └── git.py       # Source Control wrapper (system git via subprocess)
+│   │   └── security.py      # Shared path-traversal / workspace validation
+│   ├── tests/               # Pytest suite (files, git, db, processes, terminal, security)
+│   ├── requirements.txt     # Runtime Python requirements
+│   ├── requirements-dev.txt # Lint + test requirements
 │   └── Dockerfile           # Backend container setup
 ├── frontend/
 │   ├── src/
@@ -240,5 +243,39 @@ The Cloud IDE environment is modular and designed to easily integrate new develo
 ├── docker-compose.yml         # Compose configuration file
 └── README.md                  # Detailed Documentation
 ```
+
+---
+
+## ✅ Testing
+
+**Backend** (FastAPI / pytest) — covers files, git, database, processes, the interactive PTY terminal, and the path-security helpers:
+```bash
+cd backend
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+**Frontend** (Vitest) — covers utility helpers, the Zustand stores, the fuzzy file matcher, and the diff parser:
+```bash
+cd frontend
+npm install
+npm test          # one-shot run
+npm run type-check
+```
+
+CI (`.github/workflows/ci.yml`) runs ruff + pytest, the frontend type-check + Vitest, and a Docker build check on every push and PR.
+
+---
+
+## 🔒 Security & Production Hardening
+
+* **Path-traversal protection**: every user-supplied path and workspace name is funneled through `app/security.py`, which strips null bytes and rejects any path that escapes the workspace root (verified by resolving symlinks before an `is_relative_to` check). Workspace names must be single, non-dot path segments.
+* **File tree limits**: the explorer skips heavy/machine-generated directories (`node_modules`, `.git`, `venv`, `dist`, build caches, …) and is bounded by node-count and depth limits so a pathological project can't produce an unbounded response. File reads over 5 MB are refused.
+* **Read-only SQL viewer**: the query endpoint opens SQLite connections in `mode=ro`, so writes are impossible at the engine level regardless of the SQL submitted; a keyword pre-check returns a friendly message. Table names are validated against an identifier allowlist.
+* **Git clone safety**: repository URLs are validated against an allowlist of schemes and passed after a `--` separator, preventing argument-injection (e.g. a URL beginning with `-`).
+* **Upload limits**: a middleware rejects request bodies over 50 MB and malformed `Content-Length` headers.
+* **Offline-capable editor**: Monaco and its language web workers are bundled locally (no runtime CDN dependency), so the editor works behind a strict CSP or with no internet access.
+* **Deployment note**: this IDE executes arbitrary user code and shell commands by design. Run it inside an isolated, sandboxed container (as the provided non-root `ide` user) and never expose it directly to untrusted users on a shared host.
 
 

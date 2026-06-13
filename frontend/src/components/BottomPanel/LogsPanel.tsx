@@ -37,7 +37,7 @@ export function LogsPanel() {
     // Reset store logs for active if missing
     clearLogs(activeProcessId);
 
-    const wsUrl = `${WS_BASE.replace('http', 'ws')}/api/processes/${activeProcessId}/logs`;
+    const wsUrl = `${WS_BASE}/api/processes/${activeProcessId}/logs`;
     const ws = new WebSocket(wsUrl);
     activeWsRef.current = ws;
 

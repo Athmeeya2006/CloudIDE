@@ -15,7 +15,7 @@ interface DiffLine {
   content: string;
 }
  
-function parseDiff(raw: string): DiffLine[] {
+export function parseDiff(raw: string): DiffLine[] {
   return raw.split('\n').map(line => {
     if (line.startsWith('+') && !line.startsWith('+++')) return { type: 'add', content: line };
     if (line.startsWith('-') && !line.startsWith('---')) return { type: 'del', content: line };

@@ -1,20 +1,28 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   ChevronRight, ChevronDown, FolderOpen, Folder,
-  FilePlus, FolderPlus, RefreshCw, Trash2, Edit3, Copy,
+  FilePlus, FolderPlus, RefreshCw, Trash2, Edit3, Copy, Plus,
 } from 'lucide-react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import { useFileStore } from '../../stores/fileStore';
 import { useUIStore } from '../../stores/uiStore';
+import { filesApi } from '../../api/client';
 import { getFileIcon, cn } from '../../utils';
 import type { FileNode } from '../../types';
  
 export function FileExplorer() {
-  const { fileTree, refreshTree, loading, workspace } = useFileStore();
-  const { openNewFileDialog, openCloneDialog } = useUIStore();
+  const {
+    fileTree, refreshTree, loading, workspace,
+    workspaces, setWorkspace, createWorkspace, loadWorkspaces,
+  } = useFileStore();
+  const { openNewFileDialog, openCloneDialog, notify } = useUIStore();
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['']));
   const [renaming, setRenaming] = useState<string | null>(null);
  
+  useEffect(() => {
+    loadWorkspaces();
+  }, [loadWorkspaces]);
+
   const toggleDir = useCallback((path: string) => {
     setExpanded(prev => {
       const next = new Set(prev);
@@ -22,9 +30,41 @@ export function FileExplorer() {
       return next;
     });
   }, []);
+
+  const handleNewWorkspace = async () => {
+    const name = window.prompt('New workspace name')?.trim();
+    if (!name) return;
+    try {
+      await createWorkspace(name);
+      notify(`Workspace "${name}" created`, 'success');
+    } catch (e: any) {
+      notify(e.response?.data?.detail || 'Failed to create workspace', 'error');
+    }
+  };
  
   return (
     <div className="h-full flex flex-col">
+      {/* Workspace switcher */}
+      <div className="flex items-center gap-1 px-2 py-1.5 border-b border-ide-border shrink-0">
+        <select
+          value={workspace}
+          onChange={e => setWorkspace(e.target.value)}
+          title="Switch workspace"
+          className="flex-1 min-w-0 bg-ide-bg text-ide-text text-[12px] px-2 py-1 border border-ide-border focus:border-ide-accent outline-none rounded"
+        >
+          {workspaces.map(w => (
+            <option key={w} value={w}>{w}</option>
+          ))}
+        </select>
+        <button
+          title="New Workspace"
+          onClick={handleNewWorkspace}
+          className="p-1 shrink-0 text-ide-text-dim hover:text-ide-text rounded hover:bg-ide-hover transition-colors"
+        >
+          <Plus size={14} />
+        </button>
+      </div>
+
       <div className="flex items-center justify-between px-3 py-2 text-[11px] font-semibold tracking-widest text-ide-text-muted uppercase border-b border-ide-border shrink-0 select-none">
         <span>Explorer</span>
         <div className="flex items-center gap-0.5">
@@ -119,7 +159,6 @@ function TreeNode({ node, depth, expanded, renaming, onToggle, onRenameStart, on
     const base  = node.name.replace(ext, '');
     const copy  = [...parts.slice(0, -1), `${base}_copy${ext}`].join('/');
     try {
-      const { filesApi } = await import('../../api/client');
       await filesApi.create(copy, false);
       const { content } = await filesApi.read(node.path);
       await filesApi.write(copy, content);

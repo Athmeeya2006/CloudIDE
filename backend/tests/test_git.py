@@ -78,3 +78,45 @@ async def test_git_path_traversal_blocked(git_repo):
         # Traversal in folder name
         r2 = await ac.get("/api/git/status", params={"workspace": "default", "folder": "../../"})
         assert r2.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_git_commit_flow(git_repo):
+    default_ws = git_repo / "default"
+    (default_ws / "new_file.txt").write_text("new content")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # There should be an untracked change
+        r = await ac.get("/api/git/status", params={"workspace": "default"})
+        assert any(f["path"] == "new_file.txt" for f in r.json()["files"])
+
+        # Commit everything
+        r_commit = await ac.post("/api/git/commit", json={
+            "workspace": "default", "message": "add new file", "add_all": True,
+        })
+        assert r_commit.status_code == 200
+
+        # Working tree should now be clean
+        r2 = await ac.get("/api/git/status", params={"workspace": "default"})
+        assert r2.json()["files"] == []
+
+        # The commit shows up in the log
+        r_log = await ac.get("/api/git/log", params={"workspace": "default"})
+        assert r_log.json()["commits"][0]["message"] == "add new file"
+
+
+@pytest.mark.asyncio
+async def test_git_clone_rejects_invalid_url(git_repo):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # Empty / non-URL
+        r = await ac.post("/api/git/clone", json={"url": "not a url", "workspace": "default"})
+        assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_git_clone_blocks_argument_injection(git_repo):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # A URL starting with "-" would be treated as a git flag; must be rejected.
+        r = await ac.post("/api/git/clone", json={
+            "url": "--upload-pack=touch /tmp/pwned", "workspace": "default",
+        })
+        assert r.status_code == 400

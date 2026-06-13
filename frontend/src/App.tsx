@@ -20,7 +20,7 @@ export default function App() {
   const { refreshTree, saveActiveFile } = useFileStore();
   const {
     sidebarOpen, bottomOpen, previewOpen,
-    openBottom, toggleBottom, openQuickOpen,
+    openBottom, openQuickOpen,
     openSettings, openSidebar,
   } = useUIStore();
 
@@ -34,11 +34,15 @@ export default function App() {
     saveActiveFile();
   }, { enableOnContentEditable: true, enableOnFormTags: true });
 
-  // Toggle terminal
+  // Toggle terminal: close if already showing the terminal, otherwise open to it
   useHotkeys('ctrl+`', (e) => {
     e.preventDefault();
-    toggleBottom();
-    openBottom('terminal');
+    const ui = useUIStore.getState();
+    if (ui.bottomOpen && ui.bottomView === 'terminal') {
+      ui.toggleBottom();
+    } else {
+      ui.openBottom('terminal');
+    }
   }, { enableOnFormTags: true });
 
   // Quick open (Ctrl+P)

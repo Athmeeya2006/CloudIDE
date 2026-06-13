@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Search, CaseSensitive, Loader2, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { filesApi } from '../../api/client';
 import { useFileStore } from '../../stores/fileStore';
@@ -86,6 +86,15 @@ export function SearchPanel() {
     }
   }, [query, mode, workspace, caseSensitive, notify]);
  
+  // Reset results when switching modes so a content/filename result shape
+  // mismatch can never be rendered.
+  useEffect(() => {
+    setResults([]);
+    setSearched(false);
+    setTruncated(false);
+    setExpanded(new Set());
+  }, [mode]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') doSearch();
   };
