@@ -74,10 +74,21 @@ export const filesApi = {
   createWorkspace: (name: string) =>
     api.post('/api/files/workspaces', { name }).then(r => r.data),
 
-  upload: (formData: FormData) =>
-    api.post('/api/files/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }).then(r => r.data),
+  // Use native fetch so the browser sets `multipart/form-data; boundary=...`
+  // itself. Axios (configured with a JSON default Content-Type) would otherwise
+  // drop the boundary and the backend couldn't parse the upload.
+  upload: async (formData: FormData) => {
+    const res = await fetch(`${BASE}/api/files/upload`, { method: 'POST', body: formData });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const err = new Error(data.detail || `Upload failed (${res.status})`) as Error & {
+        response?: { data: unknown; status: number };
+      };
+      err.response = { data, status: res.status };
+      throw err;
+    }
+    return res.json();
+  },
 };
 
 // ---- Processes ----
