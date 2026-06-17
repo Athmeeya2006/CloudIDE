@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     # Useful when the IDE shares a host with other services. The IDE's own
     # backend port is always excluded automatically.
     reserved_ports: str = ""
+    # Prefer production build-and-serve over heavy dev servers. Auto-enabled on
+    # hosts with under ~1 GiB RAM; set to true to force it on.
+    low_memory: bool = False
 
     @property
     def origins_list(self) -> list[str]:

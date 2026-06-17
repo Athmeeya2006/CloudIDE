@@ -1,17 +1,19 @@
 # Cloud IDE 🚀
 
-A high-performance, browser-based Integrated Development Environment (IDE) tailored for Python projects, Node.js, C/C++ compilation, and modern web applications. Cloud IDE packages a multi-model Monaco Editor, a low-latency interactive pseudo-terminal (PTY) over WebSockets, custom process sandboxing, real-time log streaming, an integrated SQLite database visualizer, and full Git integration.
+A multi-user, browser-based development environment. Each user signs in with email and password, owns their own projects, and gets a full toolchain: a multi-model Monaco editor, an interactive PTY terminal over WebSockets, managed processes with streamed logs, a one-click full-stack runner, a live preview that works even on a remote host, a database viewer across SQLite/PostgreSQL/MySQL/MongoDB, and Git integration.
 
 ---
 
 ## 🌟 Core Capabilities
 
-* **Monaco Editor (VS Code Engine)**: Support for syntax highlighting, bracket matching, parameter hints, and code formatting. Tabbed layout handles independent editor models, maintaining cursor positions, selections, and individual undo/redo stacks.
-* **Low-Latency Interactive PTY (xterm.js)**: Runs a backend pseudo-terminal (PTY) shell (like bash or sh) directly on the host. Keystrokes are streamed bi-directionally over WebSockets, with automatic terminal size negotiation.
-* **Direct Terminal Code Runner (F5 / Play Button)**: Intercepts active files, resolves compilers (gcc, g++, python3, node, ts-node, etc.), and runs commands directly in the interactive terminal panel.
-* **Integrated SQLite Visualizer**: Automatically parses SQLite database files within the workspace. Provides a structured database schema viewer, table browsers, and a custom SQL query executor.
-* **Git Version Control**: Clean visual interfaces to clone repositories, view status badges (modified, added, deleted), see file diff overlays, write commit messages, and browse repository commit history.
-* **Live Web Preview**: Split-pane iframe viewer with quick-port switcher buttons to test localhost web servers (e.g. ports 3000, 8000, 8080) directly in the workspace.
+* **Accounts and projects**: email/password sign-in (PBKDF2-hashed, signed-token sessions). Each user owns isolated projects; every project has its own workspace folder and provisioned databases.
+* **Multi-engine databases**: provision a SQLite, PostgreSQL, MySQL, or MongoDB database per project. A handful of shared servers back thousands of per-project logical databases (see below). The unified viewer lists tables/collections, schema, paginated rows, and a read-only query runner.
+* **Monaco editor (VS Code engine)**: syntax highlighting, bracket matching, parameter hints, formatting, and a tabbed layout with independent models, cursor positions, and undo/redo stacks.
+* **Interactive PTY terminal (xterm.js)**: a real shell streamed bi-directionally over WebSockets, with size negotiation. Each terminal opens inside the current project folder.
+* **Run button + one-click Run Dev**: F5 runs the active file; **Run Dev** auto-detects and starts a project's services (backend + frontend) at once, with framework-aware commands and a low-memory build-and-serve mode.
+* **Live preview (works remotely)**: an iframe routed through a backend reverse proxy, so it reaches your app even when the IDE backend runs on a different machine than your browser. Auto-detects whichever port your app is actually on.
+* **Managed processes**: start/stop/restart background servers with streamed stdout/stderr logs.
+* **Git**: init, clone, status, diff, commit, push, pull, log, and branches.
 
 ---
 
@@ -20,42 +22,54 @@ A high-performance, browser-based Integrated Development Environment (IDE) tailo
 ```mermaid
 graph TD
     subgraph Browser ["Web Browser (Frontend)"]
-        UI["React + Tailwind + Zustand UI"]
-        Monaco["Monaco Editor (Tab State & Models)"]
-        Xterm["Xterm.js (Interactive Terminal)"]
+        UI["React + Tailwind + Zustand"]
+        Auth["Login / Project Picker"]
+        Editor["Monaco Editor"]
+        Xterm["xterm.js Terminal"]
         Preview["Iframe Live Preview"]
     end
 
-    subgraph Backend ["FastAPI Backend (Python)"]
-        RouterFiles["Files Router (Workspaces CRUD)"]
-        RouterTerminal["Terminal Router (PTY ws/terminal)"]
-        RouterProc["Process Router (Subprocesses & Logs)"]
-        RouterDB["Database Router (SQLite3 inspection)"]
-        RouterGit["Git Router (GitPython wrapper)"]
+    subgraph Backend ["FastAPI Backend"]
+        RAuth["Auth Router (register/login, tokens)"]
+        RProj["Projects Router (per-user projects + Run Dev)"]
+        RFiles["Files Router"]
+        RTerm["Terminal Router (PTY)"]
+        RProc["Process Router (subprocesses + logs)"]
+        RDB["Database Router (4 engines)"]
+        RGit["Git Router"]
+        RPrev["Preview Router (reverse proxy + port scan)"]
+        Meta["metadata.py (users, projects, DBs)"]
+        Prov["provisioning.py"]
     end
 
-    subgraph Storage ["Persistent Workspace Storage"]
-        Workspace["/workspaces/default/"]
+    subgraph Storage ["Per-user workspaces"]
+        WS["workspaces/u<id>_<project>/"]
     end
 
-    UI -->|HTTP Requests| RouterFiles
-    UI -->|HTTP Git Actions| RouterGit
-    UI -->|HTTP SQLite Query| RouterDB
-    
-    Monaco -.->|Save File| RouterFiles
-    Xterm <-->|WebSocket: Terminal Shell| RouterTerminal
-    UI <-->|WebSocket: Log Streams| RouterProc
+    subgraph DBs ["Shared DB servers"]
+        PG[(PostgreSQL)]
+        MY[(MySQL)]
+        MO[(MongoDB)]
+    end
 
-    RouterTerminal -->|Spawns PTY Shell| PTY[PTY Process]
-    RouterProc -->|Spawns Subprocess| ProcessGroup[os.setsid Subprocesses]
+    Auth <-->|Bearer token| RAuth
+    UI <-->|HTTP| RProj
+    Editor -.->|save| RFiles
+    Xterm <-->|WebSocket| RTerm
+    UI <-->|WebSocket logs| RProc
+    UI <-->|inspect| RDB
+    Preview <-->|"/api/preview/{port}"| RPrev
 
-    RouterFiles <-->|Read / Write| Storage
-    RouterDB <-->|Inspect sqlite3| Storage
-    RouterGit <-->|Local Git Commands| Storage
-    PTY <-->|Executes in CWD| Storage
-    ProcessGroup <-->|Executes in CWD| Storage
+    RAuth --> Meta
+    RProj --> Meta
+    RProj --> Prov
+    Prov -->|create logical db + role| PG & MY & MO
+    RDB --> PG & MY & MO
 
-    ProcessGroup -.->|Serves Port| Preview
+    RTerm -->|PTY shell| PROC[User processes]
+    RProc -->|subprocess group| PROC
+    PROC <-->|cwd| WS
+    RPrev -->|127.0.0.1:port| PROC
 ```
 
 ---
@@ -68,7 +82,7 @@ graph TD
 * **Unified database viewer**: list tables (or Mongo collections), inspect schema, browse rows with pagination, and run read-only queries, with the same interface for every engine.
 * **Live preview with CRUD**: run your app, open it in the Live Preview, and creating or deleting records through its UI updates the rows shown in the Database Viewer. The provisioned database connection string is available to your app through `DATABASE_URL`.
 
-> **Ports and preview:** the IDE backend uses port `8000` and the IDE frontend uses `3000`, so do not run your own apps on those. Use ports such as `5173` (Vite/React), `5000`, `5001`-`5010`, or `8080`. Bind your app to `0.0.0.0` (for example `uvicorn ... --host 0.0.0.0`, `vite --host`). The Live Preview reaches your app through a backend proxy (`/api/preview/<port>/`), so it works even when the IDE runs on a different machine than your browser. WebSockets are not proxied, so dev-server hot reload does not push updates; use the reload button. Apps that build absolute URLs in JavaScript should use relative URLs, or set the dev server's base path to `/api/preview/<port>/`.
+> **Ports and preview:** the IDE backend uses port `8000` and the IDE frontend uses `3000`, so do not run your own apps on those. Bind your app to `0.0.0.0`. The Live Preview reaches your app through a backend proxy (`/api/preview/<port>/`), so it works even when the IDE runs on a different machine than your browser, and it auto-detects whichever port your app is on. Single-page apps must serve their assets under that base path; **Run Dev sets this automatically** for detected Vite / CRA / Next apps (Vite `--base`, CRA `PUBLIC_URL`). If you start a frontend by hand, pass the same base (for example `vite --base /api/preview/5173/`). WebSockets are not proxied, so dev-server hot reload does not push updates; use the reload button.
 
 Implementation lives in `backend/app/metadata.py` (users, projects, and their databases), `backend/app/provisioning.py` (creating and tearing down databases and roles), and `backend/app/db_inspect.py` (read-only browsing across all engines).
 
@@ -140,6 +154,22 @@ It decides what to run in one of two ways:
 Use **Save as config** in the Run Dev dropdown to write the current services to
 `cloudide.json` so they become fixed and editable.
 
+### Low-memory mode (small instances)
+A Create React App / webpack dev server can use more RAM than a small instance
+has, and get OOM-killed mid-build. When the host has under ~1 GiB of RAM (or you
+set `LOW_MEMORY=true`), Run Dev switches known frameworks from a dev server to a
+one-time production build that is then served statically, which uses far less
+memory at runtime:
+
+* Vite: `npm run build && vite preview`
+* Create React App: `npm run build && serve -s build` (source maps off, capped Node heap)
+* Next.js: `npm run build && next start`
+
+The Run Dev dropdown shows a **build mode** badge when this is active. npm installs
+always run with `--legacy-peer-deps`, so peer-dependency conflicts never block
+them. If your app keeps running out of memory, prefer Vite over CRA (much lighter)
+or move to a larger instance.
+
 ### Full-stack, end to end (manual)
 1. Terminal 1: start the backend on `0.0.0.0:5000`.
 2. Terminal 2: start the frontend on `0.0.0.0:5173`.
@@ -166,6 +196,9 @@ which gives each one a start/stop/restart control and a streamed log view.
 * **Terminal Engine**: `@xterm/xterm` with `@xterm/addon-fit`, `@xterm/addon-web-links`, and `@xterm/addon-unicode11`.
 * **Backend**: FastAPI (Python) + Uvicorn ASGI server.
 * **Backend Shells**: Standard library PTY (`pty`, `os`, `fcntl`, `termios`) for WebSocket-based interactive shell sessions.
+* **Auth**: standard-library PBKDF2 password hashing + HMAC-signed tokens (no external auth library).
+* **Databases**: `sqlite3` (stdlib), `psycopg2` (PostgreSQL), `PyMySQL`, `pymongo`, all imported lazily.
+* **Preview proxy**: `httpx` streaming reverse proxy.
 * **Git Actions**: The system `git` binary, invoked via `asyncio.create_subprocess_exec` (no third-party Git client).
 
 ---
@@ -221,19 +254,76 @@ npm run dev
 
 ### Backend Settings (`backend/.env`)
 
-| Variable | Default Value | Description |
+| Variable | Default | Description |
 |:---|:---|:---|
-| `WORKSPACE_BASE` | `/workspaces` | Directory where all client workspace files reside. Falls back to `<repo>/workspaces` if not writable. |
-| `ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Comma-separated list of CORS origins permitted to access REST & WebSocket servers. |
-| `MAX_PROCESSES` | `10` | Maximum number of concurrent background tasks. |
-| `PORT` | `8000` | Port for the FastAPI server to bind to. |
+| `WORKSPACE_BASE` | `/workspaces` | Root for all workspace files. Falls back to `<repo>/workspaces` if not writable. |
+| `ALLOWED_ORIGINS` | `localhost:5173,3000,...` | Comma-separated CORS origins for REST and WebSocket access. |
+| `MAX_PROCESSES` | `10` | Max concurrent background processes. |
+| `PORT` | `8000` | Port the FastAPI server binds to (a platform like Render sets this). |
+| `AUTH_SECRET` | random per process | Secret for signing session tokens. Set a fixed value so tokens survive restarts. |
+| `LOW_MEMORY` | `false` | Force build-and-serve mode. Auto-enabled under ~1 GiB RAM. |
+| `RESERVED_PORTS` | empty | Extra ports the preview must never treat as a user app (comma-separated). |
+| `MAX_DATABASES_PER_USER` | `20` | Per-user quota on provisioned databases. |
+| `PG_HOST` / `PG_PORT` / `PG_ADMIN_USER` / `PG_ADMIN_PASSWORD` | empty / `5432` / ... | Shared PostgreSQL server. Empty `PG_HOST` disables PostgreSQL. |
+| `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_ADMIN_USER` / `MYSQL_ADMIN_PASSWORD` | empty / `3306` / ... | Shared MySQL server. Empty host disables MySQL. |
+| `MONGO_HOST` / `MONGO_PORT` / `MONGO_ADMIN_USER` / `MONGO_ADMIN_PASSWORD` | empty / `27017` / ... | Shared MongoDB server. Empty host disables MongoDB. |
+
+`docker-compose.yml` sets the `*_HOST` values to its bundled database services, so all four engines work out of the box under Compose.
 
 ### Frontend Settings (`frontend/.env`)
 
-| Variable | Default Value | Description |
+| Variable | Default | Description |
 |:---|:---|:---|
-| `VITE_API_URL` | `http://localhost:8000` | REST API base URL. Leave empty to use the same origin (e.g. behind the nginx reverse proxy). |
-| `VITE_WS_URL` | `ws://localhost:8000` | WebSocket base URL. Leave empty to derive `ws(s)://` from the page origin. |
+| `VITE_API_URL` | empty | Backend base URL. **Empty = same origin** (works under Compose/nginx and local Vite proxy). For a split deployment (frontend and backend on different domains) set this to the backend URL. |
+| `VITE_WS_URL` | empty | WebSocket base URL. Empty derives `ws(s)://` from `VITE_API_URL` or the page origin. |
+
+---
+
+## 🌐 Deployment
+
+### Docker Compose (single host, recommended)
+`docker compose up --build` brings up the frontend (nginx on port 3000), the
+backend (port 8000), and the three shared database servers on one network. nginx
+proxies `/api` (including WebSockets and the preview proxy) to the backend, so
+`VITE_API_URL` stays empty (same origin). User apps run inside the backend
+container and are reached by the preview proxy over `127.0.0.1`.
+
+### Split deployment (frontend and backend on different hosts)
+For example, the frontend on Vercel and the backend on Render:
+
+1. **Backend** (Render web service from `backend/Dockerfile`): a single public
+   port. Set `AUTH_SECRET`, the `*_HOST` database vars (or leave empty to use
+   SQLite only), and `ALLOWED_ORIGINS` to include the frontend's URL.
+2. **Frontend** (Vercel from `frontend/`): set `VITE_API_URL` to the backend's
+   public URL. Every request, including the terminal WebSocket and the preview
+   proxy, then targets the backend.
+
+Key point for previews in a split deployment: user apps run inside the **backend**
+container and are never exposed as public ports. The browser reaches them only
+through the backend proxy at `VITE_API_URL` + `/api/preview/<port>/`. There is
+nothing to expose per port, and the app can listen on any port.
+
+---
+
+## 🩺 Troubleshooting
+
+* **Preview says "Nothing is running on port N".** That page is served by the
+  backend proxy, so the request reached the backend fine; nothing is listening
+  on that port yet. Check the **Processes** panel: if it still shows `npm install`
+  or a build, just wait; if you see `Killed`, it ran out of memory.
+* **The dev server gets OOM-killed (Render "memory limit exceeded").** The app is
+  too heavy for the instance (CRA/webpack is the usual culprit). Low-memory mode
+  builds and serves instead; prefer Vite over CRA, or use a larger instance.
+* **The app is on a different port than the preview opened.** The preview scans
+  the host's listening sockets and switches to your app automatically; or click
+  the radar (detect) button, or type the port in the address bar.
+* **`npm warn ERESOLVE` / peer dependency conflicts.** These are warnings, not
+  errors; the install continues. Auto-detected installs already pass
+  `--legacy-peer-deps`.
+* **Login/terminal/preview fail on a split deployment.** `VITE_API_URL` is not
+  pointing at the backend, so requests hit the frontend origin. Set it on the
+  frontend host and make sure the backend's `ALLOWED_ORIGINS` includes the
+  frontend URL.
 
 ---
 
@@ -313,33 +403,39 @@ The Cloud IDE environment is modular and designed to easily integrate new develo
 .
 ├── backend/
 │   ├── app/
-│   │   ├── main.py          # FastAPI application server entrypoint
-│   │   ├── config.py        # Settings configuration
+│   │   ├── main.py           # FastAPI app: routers, lifespan, middleware
+│   │   ├── config.py         # Settings (env-driven)
+│   │   ├── security.py       # Path-traversal / workspace validation
+│   │   ├── auth.py           # PBKDF2 password hashing + HMAC tokens
+│   │   ├── metadata.py       # Control-plane SQLite: users, projects, databases
+│   │   ├── provisioning.py   # Create/destroy per-project logical databases
+│   │   ├── db_inspect.py     # Read-only browsing across all 4 engines
+│   │   ├── runner.py         # Run Dev: cloudide.json + auto-detection + low-memory
 │   │   └── routers/
-│   │       ├── files.py     # Filesystem CRUD router
-│   │       ├── terminal.py  # WebSocket interactive PTY router
-│   │       ├── processes.py # Subprocess management and logging socket
-│   │       ├── database.py  # SQLite visualizer & query executor
-│   │       └── git.py       # Source Control wrapper (system git via subprocess)
-│   │   └── security.py      # Shared path-traversal / workspace validation
-│   ├── tests/               # Pytest suite (files, git, db, processes, terminal, security)
-│   ├── requirements.txt     # Runtime Python requirements
-│   ├── requirements-dev.txt # Lint + test requirements
-│   └── Dockerfile           # Backend container setup
+│   │       ├── auth.py       # register / login / me
+│   │       ├── projects.py   # per-user projects, services, databases
+│   │       ├── files.py      # filesystem CRUD
+│   │       ├── terminal.py   # WebSocket interactive PTY
+│   │       ├── processes.py  # subprocess management + log stream
+│   │       ├── database.py   # database viewer (engine-aware)
+│   │       ├── git.py        # git via subprocess
+│   │       └── preview.py    # reverse proxy + port detection
+│   ├── tests/                # Pytest suite
+│   └── Dockerfile            # Backend image (python, node/npm, sudo, db drivers)
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── Sidebar/       # Git panel, Explorer, Search panel, DB schema
-│   │   │   ├── Editor/        # Monaco editor and tab headers
-│   │   │   ├── BottomPanel/   # Logs viewer, interactive PTY Terminal, SQL Query panels
-│   │   │   └── Preview/       # Split-pane web preview component
-│   │   ├── stores/            # Zustand store state containers
-│   │   ├── api/               # Client connections and API setups
-│   │   └── utils/             # Icon and language mappings
-│   ├── Dockerfile             # Frontend production container
-│   └── tsconfig.json          # TypeScript compiler configurations
-├── docker-compose.yml         # Compose configuration file
-└── README.md                  # Detailed Documentation
+│   │   │   ├── Auth/          # LoginScreen, ProjectPicker
+│   │   │   ├── Sidebar/       # Explorer, Search, Git, Database panels
+│   │   │   ├── Editor/        # Monaco editor, tabs, run config
+│   │   │   ├── BottomPanel/   # Terminal, Processes/Logs, Database viewer
+│   │   │   ├── Preview/       # Live preview (proxy + auto-detect)
+│   │   │   └── RunDevButton.tsx
+│   │   ├── stores/            # Zustand: auth, project, file, process, ui
+│   │   └── api/client.ts      # Axios client + auth/projects/preview helpers
+│   └── Dockerfile             # Frontend production image (nginx)
+├── docker-compose.yml         # Backend, frontend, postgres, mysql, mongo
+└── README.md
 ```
 
 ---

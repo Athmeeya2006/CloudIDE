@@ -58,13 +58,42 @@ async def aclose_client() -> None:
 status_router = APIRouter(prefix="/api/preview-status", tags=["preview"])
 
 
-# Ports a user's dev server might be listening on. The IDE's own port is
-# excluded at request time. This is what lets the preview find the app no matter
-# which port it actually chose (3000, 5000, 5173, ...).
+# Fallback candidate ports, used only when we cannot read the kernel's socket
+# table (for example on non-Linux hosts).
 _SCAN_PORTS = [
     3000, 3001, 4000, 4173, 4200, 5000, 5001, 5002, 5003, 5050,
     5173, 5174, 8080, 8081, 8888, 9000,
 ]
+
+# Infrastructure ports that are never a web preview (databases, caches), so we
+# never offer to load one as a page.
+_INFRA_PORTS = {5432, 3306, 27017, 6379, 11211}
+
+
+def _listening_ports_from_proc() -> list[int] | None:
+    """Read every TCP port in LISTEN state from the kernel (Linux).
+
+    This detects a user's app on *any* port it binds, instead of probing a
+    fixed list. Returns None when /proc is unavailable so the caller can fall
+    back to scanning ``_SCAN_PORTS``.
+    """
+    ports: set[int] = set()
+    found = False
+    for path in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(path) as f:
+                next(f, None)  # skip header
+                for line in f:
+                    parts = line.split()
+                    if len(parts) < 4 or parts[3] != "0A":  # 0A == LISTEN
+                        continue
+                    hex_port = parts[1].rsplit(":", 1)[-1]
+                    with contextlib.suppress(ValueError):
+                        ports.add(int(hex_port, 16))
+            found = True
+        except OSError:
+            continue
+    return sorted(ports) if found else None
 
 
 async def _port_open(port: int) -> bool:
@@ -83,19 +112,25 @@ async def _port_open(port: int) -> bool:
 
 
 def _reserved() -> set[int]:
-    """Ports that are the IDE itself, never a user app."""
-    return {settings.port, *settings.reserved_ports_list}
+    """Ports the preview must never treat as a user app."""
+    return {settings.port, *settings.reserved_ports_list, *_INFRA_PORTS}
 
 
 @status_router.get("")
 async def listening_ports():
-    """Every candidate port that currently has something listening on it.
+    """Every port a user app is currently listening on, on any port.
 
-    The preview uses this to auto-detect the user's app instead of guessing a
-    single port. The IDE's own backend port (and any configured reserved ports)
-    are excluded so detection never points the preview back at the IDE.
+    Reads the kernel's listening sockets so it finds the app whatever port it
+    chose. Falls back to probing a candidate list if /proc is unavailable. The
+    IDE's own backend port, configured reserved ports, and database/cache ports
+    are excluded so detection never points the preview at the IDE or a database.
     """
     reserved = _reserved()
+    from_proc = _listening_ports_from_proc()
+    if from_proc is not None:
+        ports = [p for p in from_proc if p not in reserved and 1024 <= p <= 65535]
+        return {"ports": ports}
+
     candidates = [p for p in _SCAN_PORTS if p not in reserved]
     results = await asyncio.gather(*(_port_open(p) for p in candidates))
     return {"ports": [p for p, ok in zip(candidates, results, strict=False) if ok]}
@@ -125,8 +160,9 @@ _DROP_RESP = frozenset({
 })
 
 # Rewrite root-absolute URLs in HTML attributes (src="/x", href="/x",
-# action="/x") to carry the proxy prefix. Protocol-relative (//cdn) is skipped.
-_ABS_ATTR_RE = re.compile(rb'(\b(?:src|href|action)\s*=\s*["\'])/(?!/)')
+# action="/x") to carry the proxy prefix. The captured path lets us skip
+# protocol-relative (//cdn) and already-prefixed URLs.
+_ABS_ATTR_RE = re.compile(rb'(\b(?:src|href|action)\s*=\s*["\'])(/[^"\'>]*)')
 
 
 def _client_shim(prefix: str) -> bytes:
@@ -151,7 +187,16 @@ def _client_shim(prefix: str) -> bytes:
 
 def _rewrite_html(body: bytes, prefix: str) -> bytes:
     pfx = prefix.encode()
-    body = _ABS_ATTR_RE.sub(rb"\1" + pfx + b"/", body)
+
+    def repl(m: re.Match[bytes]) -> bytes:
+        attr, path = m.group(1), m.group(2)
+        # Leave protocol-relative (//cdn) and already-prefixed URLs untouched so
+        # apps that already emit the base (e.g. Vite with --base) don't double up.
+        if path.startswith(b"//") or path.startswith(pfx + b"/") or path == pfx:
+            return m.group(0)
+        return attr + pfx + path
+
+    body = _ABS_ATTR_RE.sub(repl, body)
     inject = b'<base href="' + pfx + b'/">' + _client_shim(prefix)
     # Insert right after <head>, else after <html>, else at the very top.
     m = re.search(rb"<head[^>]*>", body, re.IGNORECASE)
@@ -170,16 +215,29 @@ async def proxy(port: int, request: Request, path: str = ""):
         return Response("That port is the IDE itself and cannot be previewed.", status_code=400)
 
     prefix = f"/api/preview/{port}"
-    target = f"http://127.0.0.1:{port}/{path}"
     headers = {k: v for k, v in request.headers.items() if k.lower() not in _DROP_REQ}
     body = await request.body()
-
     client = _get_client()
-    req = client.build_request(
-        request.method, target, params=request.query_params, content=body, headers=headers,
-    )
+
+    async def send(upstream_path: str):
+        req = client.build_request(
+            request.method, f"http://127.0.0.1:{port}{upstream_path}",
+            params=request.query_params, content=body, headers=headers,
+        )
+        return await client.send(req, stream=True)
+
+    # Forward the FULL path first. Apps configured with this base (e.g. Vite with
+    # --base /api/preview/<port>/) emit their asset/module URLs with the prefix,
+    # so they must receive it. If that 404s on a safe method, the app probably
+    # serves from root, so retry with the prefix stripped.
+    full_path = request.url.path
+    stripped_path = "/" + path
     try:
-        upstream = await client.send(req, stream=True)
+        upstream = await send(full_path)
+        if (upstream.status_code == 404 and request.method in ("GET", "HEAD")
+                and stripped_path != full_path):
+            await upstream.aclose()
+            upstream = await send(stripped_path)
     except httpx.ConnectError:
         return Response(
             f"<html><body style='font-family:system-ui;padding:40px;color:#888'>"
@@ -192,9 +250,10 @@ async def proxy(port: int, request: Request, path: str = ""):
 
     resp_headers = {k: v for k, v in upstream.headers.items() if k.lower() not in _DROP_RESP}
 
-    # Keep redirects inside the proxy.
+    # Keep redirects inside the proxy (unless the app already emits the prefix).
     loc = upstream.headers.get("location")
-    if loc and loc.startswith("/") and not loc.startswith("//"):
+    if (loc and loc.startswith("/") and not loc.startswith("//")
+            and not loc.startswith(prefix)):
         resp_headers["location"] = f"{prefix}{loc}"
 
     ctype = upstream.headers.get("content-type", "")

@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from app.config import settings
 from app.security import SKIP_DIRS, safe_join
 
 CONFIG_NAME = "cloudide.json"
@@ -224,12 +225,34 @@ def _find_python_entry(d: Path) -> Path | None:
     return None
 
 
+def low_memory_mode() -> bool:
+    """Whether to prefer production build-and-serve over heavy dev servers.
+
+    Enabled explicitly via ``LOW_MEMORY``, or auto-enabled on hosts with less
+    than ~1 GiB of RAM (a CRA/webpack dev server alone can exceed that and get
+    OOM-killed).
+    """
+    if settings.low_memory:
+        return True
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    return int(line.split()[1]) < 1024 * 1024  # kB < 1 GiB
+    except (OSError, ValueError, IndexError):
+        pass
+    return False
+
+
 def _node_command(pkg: Path) -> str | None:
-    """Build a Node dev command that binds 0.0.0.0 on a deterministic ``{port}``.
+    """Build a Node command that binds 0.0.0.0 on a deterministic ``{port}``.
 
     Forcing host and port is what makes the preview reliable: otherwise Vite,
-    Next, CRA, etc. each pick their own default (5173 / 3000 / 3000) and bind to
-    localhost, so the preview and the app disagree on where to look.
+    Next, CRA, etc. each pick their own default and bind to localhost, so the
+    preview and the app disagree on where to look.
+
+    In low-memory mode, known frameworks are built once and served from the
+    static output instead of running a memory-heavy dev server.
     """
     try:
         data = json.loads(pkg.read_text(encoding="utf-8"))
@@ -237,6 +260,8 @@ def _node_command(pkg: Path) -> str | None:
         data = {}
     scripts = data.get("scripts", {})
     deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
+    has_build = "build" in scripts
+    low_mem = low_memory_mode()
 
     if "dev" in scripts:
         run = "npm run dev"
@@ -247,16 +272,46 @@ def _node_command(pkg: Path) -> str | None:
     else:
         return None
 
-    if "next" in deps:
-        cmd = f"{run} -- -p {{port}} -H 0.0.0.0"
-    elif "react-scripts" in deps:
-        cmd = f"HOST=0.0.0.0 PORT={{port}} BROWSER=none {run}"
-    elif any(k in deps for k in
-             ("vite", "@angular/core", "vue", "nuxt", "svelte", "@sveltejs/kit")):
-        cmd = f"{run} -- --host 0.0.0.0 --port {{port}}"
-    else:
-        # Unknown toolchain: pass common flags through; harmless if ignored.
-        cmd = f"{run} -- --host 0.0.0.0 --port {{port}}"
+    cmd: str | None = None
+
+    # The preview is served under a path prefix (/api/preview/<port>/), so the
+    # app must emit its asset/module URLs with that base, or a single-page app's
+    # absolute imports resolve to the wrong place and the page renders blank.
+    base = "/api/preview/{port}/"
+
+    # Low-memory: build the app once and serve the static output. Far lighter at
+    # runtime than a dev server (no webpack/HMR held in memory).
+    if low_mem and has_build:
+        if "next" in deps:
+            cmd = "npm run build && npm run start -- -p {port} -H 0.0.0.0"
+        elif "vite" in deps:
+            cmd = (
+                f"npm run build -- --base {base} && "
+                f"npx --yes vite preview --base {base} --host 0.0.0.0 --port {{port}}"
+            )
+        elif "react-scripts" in deps:
+            cmd = (
+                "GENERATE_SOURCEMAP=false NODE_OPTIONS=--max-old-space-size=512 "
+                f"PUBLIC_URL={base} npm run build && npx --yes serve -s build -l {{port}}"
+            )
+
+    # Default: run the framework's dev server with forced host/port + base.
+    if cmd is None:
+        if "next" in deps:
+            cmd = f"{run} -- -p {{port}} -H 0.0.0.0"
+        elif "react-scripts" in deps:
+            # GENERATE_SOURCEMAP=false and a capped Node heap cut the memory the
+            # CRA/webpack dev server uses, which is what gets it OOM-killed.
+            cmd = (
+                "GENERATE_SOURCEMAP=false NODE_OPTIONS=--max-old-space-size=512 "
+                f"PUBLIC_URL={base} HOST=0.0.0.0 PORT={{port}} BROWSER=none {run}"
+            )
+        elif "vite" in deps:
+            cmd = f"{run} -- --host 0.0.0.0 --port {{port}} --base {base}"
+        else:
+            # Vue/Svelte/Angular and unknown toolchains: common flags pass
+            # through and are harmless if ignored.
+            cmd = f"{run} -- --host 0.0.0.0 --port {{port}}"
 
     # --legacy-peer-deps so peer-dependency conflicts (common in older React
     # libraries) never block the install; --no-audit/--no-fund cut noise and time.

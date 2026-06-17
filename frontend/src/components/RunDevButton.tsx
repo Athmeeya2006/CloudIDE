@@ -23,6 +23,7 @@ export function RunDevButton() {
   const [open, setOpen] = useState(false);
   const [services, setServices] = useState<RunService[]>([]);
   const [source, setSource] = useState<'config' | 'detected' | null>(null);
+  const [lowMem, setLowMem] = useState(false);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -43,6 +44,7 @@ export function RunDevButton() {
       const data = await projectApi.services(project.id);
       setServices(data.services);
       setSource(data.source);
+      setLowMem(!!data.low_memory);
       return data.services as RunService[];
     } catch (e) {
       notify(getErrorMessage(e, 'Could not load services'), 'error');
@@ -146,11 +148,18 @@ export function RunDevButton() {
         <div className="absolute top-full right-0 mt-1 w-80 bg-ide-bg-light border border-ide-border rounded shadow-xl z-50 text-ide-text">
           <div className="px-3 py-2 border-b border-ide-border flex items-center justify-between">
             <span className="text-[11px] uppercase tracking-wider text-ide-text-dim">Dev servers</span>
-            {source && (
-              <span className="text-[10px] text-ide-text-dim">
-                {source === 'config' ? 'from cloudide.json' : 'auto-detected'}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {lowMem && (
+                <span className="text-[10px] text-ide-yellow" title="Low memory: builds and serves the app instead of running a heavy dev server">
+                  build mode
+                </span>
+              )}
+              {source && (
+                <span className="text-[10px] text-ide-text-dim">
+                  {source === 'config' ? 'from cloudide.json' : 'auto-detected'}
+                </span>
+              )}
+            </div>
           </div>
 
           {loading ? (

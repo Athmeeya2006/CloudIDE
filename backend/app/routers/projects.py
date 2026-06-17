@@ -121,6 +121,7 @@ async def project_services(project_id: str, user: dict = CurrentUser):
     for svc in result["services"]:
         sub = svc.get("cwd") or ""
         svc["run_cwd"] = f"{project['workspace']}/{sub}".rstrip("/")
+    result["low_memory"] = runner.low_memory_mode()
     return result
 
 
