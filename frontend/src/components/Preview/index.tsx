@@ -1,17 +1,18 @@
 import { useState, useRef, useEffect } from 'react';
-import { RefreshCw, ExternalLink, X, Globe, AlertCircle, Loader2 } from 'lucide-react';
+import { RefreshCw, ExternalLink, X, Globe, AlertCircle, Loader2, Radar } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
 import { useProcessStore } from '../../stores/processStore';
 import { rawFileUrl, previewProxyUrl, portFromProxyUrl, previewApi } from '../../api/client';
 
-// Ports a user's app might serve on. 8000 is intentionally excluded: it is the
-// IDE's own backend API and cannot be reused by user apps.
-const DEFAULT_PORTS = [5173, 5000, 8080, 5001];
+// Ports a user's app might serve on. The proxy reaches these on the backend
+// host, so 3000 is fine here (it is the user's app, not the IDE frontend). 8000
+// is the IDE's own API and is excluded.
+const DEFAULT_PORTS = [3000, 5173, 5000, 8080];
 const PORT_LABELS: Record<number, string> = {
-  5173: 'Vite/React',
+  3000: 'React/Next',
+  5173: 'Vite',
   5000: 'Flask/FastAPI',
   8080: 'Web server',
-  5001: 'App',
 };
 
 export function PreviewPanel() {
@@ -29,8 +30,9 @@ export function PreviewPanel() {
   const activeUrl = previewUrl || (runningProcess ? previewProxyUrl(5173) : '');
 
   // When the preview points at a proxied port, wait for that dev server to come
-  // up (npm install + bundler boot can take a while) before loading the iframe,
-  // instead of flashing a connection error. Polls until it is listening.
+  // up before loading the iframe. While waiting, also scan for the app on other
+  // ports and switch to it automatically, so it works no matter which port the
+  // app actually chose (3000, 5000, 5173, ...).
   useEffect(() => {
     setError(false);
     const port = activeUrl ? portFromProxyUrl(activeUrl) : null;
@@ -47,13 +49,27 @@ export function PreviewPanel() {
         const { listening } = await previewApi.status(port);
         if (cancelled) return;
         if (listening) { setWaiting(false); return; }
+        // Target not up yet: is the app actually on a different port?
+        const { ports } = await previewApi.scan();
+        if (cancelled) return;
+        const other = ports.find(p => p !== port);
+        if (other) { setPreviewUrl(previewProxyUrl(other)); return; }
       } catch { /* keep trying */ }
-      if (Date.now() - start > 120000) { setWaiting(false); setError(true); return; }
-      timer = setTimeout(poll, 1500);
+      // A first-time install of a large app can take a while, so wait generously.
+      if (Date.now() - start > 240000) { setWaiting(false); setError(true); return; }
+      timer = setTimeout(poll, 1800);
     };
     poll();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [activeUrl, reloadKey]);
+  }, [activeUrl, reloadKey, setPreviewUrl]);
+
+  // Scan for a running app and point the preview at it.
+  const detect = async () => {
+    try {
+      const { ports } = await previewApi.scan();
+      if (ports.length > 0) navigate(String(ports[0]));
+    } catch { /* ignore */ }
+  };
 
   const reload = () => {
     setError(false);
@@ -101,6 +117,9 @@ export function PreviewPanel() {
           />
         </div>
 
+        <button onClick={detect} title="Detect running app" className="p-1 text-ide-text-muted hover:text-ide-text">
+          <Radar size={13} />
+        </button>
         <button onClick={reload} title="Reload" className="p-1 text-ide-text-muted hover:text-ide-text">
           <RefreshCw size={13} />
         </button>

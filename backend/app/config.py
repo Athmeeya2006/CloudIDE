@@ -8,10 +8,23 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:5173,http://localhost:3000,https://cloud-ide-ebon.vercel.app"
     max_processes: int = 10
     port: int = 8000
+    # Extra ports the preview must never treat as a user app (comma-separated).
+    # Useful when the IDE shares a host with other services. The IDE's own
+    # backend port is always excluded automatically.
+    reserved_ports: str = ""
 
     @property
     def origins_list(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
+
+    @property
+    def reserved_ports_list(self) -> list[int]:
+        out = []
+        for p in self.reserved_ports.split(","):
+            p = p.strip()
+            if p.isdigit():
+                out.append(int(p))
+        return out
 
     @property
     def workspace_path(self) -> Path:

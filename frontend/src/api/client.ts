@@ -40,6 +40,9 @@ export function portFromProxyUrl(url: string): number | null {
 export const previewApi = {
   status: (port: number): Promise<{ listening: boolean }> =>
     api.get(`/api/preview-status/${port}`).then(r => r.data),
+  // Which ports currently have a server listening (auto-detect the app).
+  scan: (): Promise<{ ports: number[] }> =>
+    api.get('/api/preview-status').then(r => r.data),
 };
 
 export const api = axios.create({

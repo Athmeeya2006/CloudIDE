@@ -258,7 +258,10 @@ def _node_command(pkg: Path) -> str | None:
         # Unknown toolchain: pass common flags through; harmless if ignored.
         cmd = f"{run} -- --host 0.0.0.0 --port {{port}}"
 
-    prefix = "" if (pkg.parent / "node_modules").is_dir() else "npm install && "
+    # --legacy-peer-deps so peer-dependency conflicts (common in older React
+    # libraries) never block the install; --no-audit/--no-fund cut noise and time.
+    install = "npm install --legacy-peer-deps --no-audit --no-fund && "
+    prefix = "" if (pkg.parent / "node_modules").is_dir() else install
     return f"{prefix}{cmd}"
 
 

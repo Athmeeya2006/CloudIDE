@@ -58,6 +58,49 @@ async def aclose_client() -> None:
 status_router = APIRouter(prefix="/api/preview-status", tags=["preview"])
 
 
+# Ports a user's dev server might be listening on. The IDE's own port is
+# excluded at request time. This is what lets the preview find the app no matter
+# which port it actually chose (3000, 5000, 5173, ...).
+_SCAN_PORTS = [
+    3000, 3001, 4000, 4173, 4200, 5000, 5001, 5002, 5003, 5050,
+    5173, 5174, 8080, 8081, 8888, 9000,
+]
+
+
+async def _port_open(port: int) -> bool:
+    if port < 1 or port > 65535:
+        return False
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection("127.0.0.1", port), timeout=0.7
+        )
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+        return True
+    except (OSError, TimeoutError):
+        return False
+
+
+def _reserved() -> set[int]:
+    """Ports that are the IDE itself, never a user app."""
+    return {settings.port, *settings.reserved_ports_list}
+
+
+@status_router.get("")
+async def listening_ports():
+    """Every candidate port that currently has something listening on it.
+
+    The preview uses this to auto-detect the user's app instead of guessing a
+    single port. The IDE's own backend port (and any configured reserved ports)
+    are excluded so detection never points the preview back at the IDE.
+    """
+    reserved = _reserved()
+    candidates = [p for p in _SCAN_PORTS if p not in reserved]
+    results = await asyncio.gather(*(_port_open(p) for p in candidates))
+    return {"ports": [p for p, ok in zip(candidates, results, strict=False) if ok]}
+
+
 @status_router.get("/{port}")
 async def is_listening(port: int):
     """Whether something is accepting connections on ``127.0.0.1:port``.
@@ -66,18 +109,7 @@ async def is_listening(port: int):
     and load the app the moment the dev server is actually up, instead of
     flashing a connection error while npm install / the bundler boots.
     """
-    if port < 1 or port > 65535:
-        return {"listening": False}
-    try:
-        _, writer = await asyncio.wait_for(
-            asyncio.open_connection("127.0.0.1", port), timeout=0.8
-        )
-        writer.close()
-        with contextlib.suppress(Exception):
-            await writer.wait_closed()
-        return {"listening": True}
-    except (OSError, TimeoutError):
-        return {"listening": False}
+    return {"listening": await _port_open(port)}
 
 _METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]
 
@@ -134,8 +166,8 @@ def _rewrite_html(body: bytes, prefix: str) -> bytes:
 @router.api_route("/{port}", methods=_METHODS)
 @router.api_route("/{port}/{path:path}", methods=_METHODS)
 async def proxy(port: int, request: Request, path: str = ""):
-    if port < 1 or port > 65535 or port == settings.port:
-        return Response("Invalid preview port", status_code=400)
+    if port < 1 or port > 65535 or port in _reserved():
+        return Response("That port is the IDE itself and cannot be previewed.", status_code=400)
 
     prefix = f"/api/preview/{port}"
     target = f"http://127.0.0.1:{port}/{path}"
