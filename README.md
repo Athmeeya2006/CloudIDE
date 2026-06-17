@@ -181,9 +181,6 @@ or move to a larger instance.
 You can also run servers from the **Processes** panel instead of a terminal,
 which gives each one a start/stop/restart control and a streamed log view.
 
-> Reminder: ports `8000` (IDE backend) and `3000` (IDE frontend) are taken. Use
-> `5173`, `5000`, `5001`-`5010`, or `8080`, and bind to `0.0.0.0`.
-
 ---
 
 ## ⚙️ Tech Stack & Dependencies
