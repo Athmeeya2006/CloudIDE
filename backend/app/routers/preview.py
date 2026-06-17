@@ -18,15 +18,66 @@ server's base path to ``/api/preview/<port>/``.
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import re
 
 import httpx
 from fastapi import APIRouter, Request
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 
 from app.config import settings
 
 router = APIRouter(prefix="/api/preview", tags=["preview"])
+
+# A single shared client, reused across requests. Creating one per request (and
+# buffering whole responses) was a real source of memory pressure under a dev
+# server that serves large bundles. Connection pool size is bounded.
+_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, read=60.0),
+            follow_redirects=False,
+            limits=httpx.Limits(max_connections=50, max_keepalive_connections=10),
+        )
+    return _client
+
+
+async def aclose_client() -> None:
+    """Close the shared client on shutdown (called from the app lifespan)."""
+    global _client
+    if _client is not None and not _client.is_closed:
+        await _client.aclose()
+    _client = None
+
+# Separate prefix so it never collides with the proxy's catch-all route.
+status_router = APIRouter(prefix="/api/preview-status", tags=["preview"])
+
+
+@status_router.get("/{port}")
+async def is_listening(port: int):
+    """Whether something is accepting connections on ``127.0.0.1:port``.
+
+    The Live Preview polls this after Run Dev so it can show a "starting" state
+    and load the app the moment the dev server is actually up, instead of
+    flashing a connection error while npm install / the bundler boots.
+    """
+    if port < 1 or port > 65535:
+        return {"listening": False}
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection("127.0.0.1", port), timeout=0.8
+        )
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+        return {"listening": True}
+    except (OSError, TimeoutError):
+        return {"listening": False}
 
 _METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]
 
@@ -91,12 +142,12 @@ async def proxy(port: int, request: Request, path: str = ""):
     headers = {k: v for k, v in request.headers.items() if k.lower() not in _DROP_REQ}
     body = await request.body()
 
+    client = _get_client()
+    req = client.build_request(
+        request.method, target, params=request.query_params, content=body, headers=headers,
+    )
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
-            upstream = await client.request(
-                request.method, target,
-                params=request.query_params, content=body, headers=headers,
-            )
+        upstream = await client.send(req, stream=True)
     except httpx.ConnectError:
         return Response(
             f"<html><body style='font-family:system-ui;padding:40px;color:#888'>"
@@ -114,10 +165,29 @@ async def proxy(port: int, request: Request, path: str = ""):
     if loc and loc.startswith("/") and not loc.startswith("//"):
         resp_headers["location"] = f"{prefix}{loc}"
 
-    content = upstream.content
     ctype = upstream.headers.get("content-type", "")
-    if "text/html" in ctype.lower():
-        content = _rewrite_html(content, prefix)
 
-    return Response(content=content, status_code=upstream.status_code,
-                    headers=resp_headers, media_type=ctype or None)
+    # HTML must be read fully so it can be rewritten (pages are small). Everything
+    # else (JS bundles, images, JSON, ...) is streamed so we never hold a whole
+    # response in memory.
+    if "text/html" in ctype.lower():
+        try:
+            raw = await upstream.aread()
+        finally:
+            await upstream.aclose()
+        return Response(
+            content=_rewrite_html(raw, prefix), status_code=upstream.status_code,
+            headers=resp_headers, media_type=ctype or None,
+        )
+
+    async def stream():
+        try:
+            async for chunk in upstream.aiter_bytes():
+                yield chunk
+        finally:
+            await upstream.aclose()
+
+    return StreamingResponse(
+        stream(), status_code=upstream.status_code,
+        headers=resp_headers, media_type=ctype or None,
+    )

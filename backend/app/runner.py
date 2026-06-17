@@ -36,8 +36,9 @@ CONFIG_NAME = "cloudide.json"
 
 # Ports we hand out to detected services. We avoid 8000 (IDE backend) and 3000
 # (IDE frontend) on purpose.
-_FRONTEND_PORT = 5173
+_FRONTEND_PORTS = [5173, 5174, 5175, 5176]
 _BACKEND_PORTS = [5000, 5001, 5002, 5003]
+_COMPOSE_FILES = ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
 
 
 def get_services(workspace: str) -> dict:
@@ -100,6 +101,17 @@ def detect_services(workspace: str) -> list[dict]:
     if not root.is_dir():
         return []
 
+    # Docker Compose at the project root runs the whole stack and owns its own
+    # ports, so it takes over and we do not also detect individual services.
+    compose = next((root / n for n in _COMPOSE_FILES if (root / n).is_file()), None)
+    if compose:
+        return [{
+            "name": "docker compose",
+            "command": f"docker compose -f {compose.name} up --build",
+            "cwd": "",
+            "port": None,
+        }]
+
     # The workspace root plus its immediate, meaningful subdirectories.
     search_dirs = [(root, "")]
     try:
@@ -110,14 +122,14 @@ def detect_services(workspace: str) -> list[dict]:
         pass
 
     services: list[dict] = []
-    backend_idx = 0
+    ports = {"backend": list(_BACKEND_PORTS), "frontend": list(_FRONTEND_PORTS)}
     for directory, rel in search_dirs:
         for svc in _detect_in_dir(directory, rel):
-            if svc["kind"] == "backend":
-                svc["port"] = _BACKEND_PORTS[min(backend_idx, len(_BACKEND_PORTS) - 1)]
+            kind = svc.pop("kind", None)
+            if kind in ports and ports[kind]:
+                svc["port"] = ports[kind].pop(0)
+            if svc.get("port") and "{port}" in svc["command"]:
                 svc["command"] = svc["command"].format(port=svc["port"])
-                backend_idx += 1
-            svc.pop("kind", None)
             services.append(svc)
     return services
 
@@ -144,7 +156,7 @@ def _detect_in_dir(d: Path, rel: str) -> list[dict]:
                 "name": rel or "frontend",
                 "command": cmd,
                 "cwd": rel,
-                "port": _FRONTEND_PORT,
+                "port": None,
                 "kind": "frontend",
             })
     else:
@@ -155,6 +167,7 @@ def _detect_in_dir(d: Path, rel: str) -> list[dict]:
                     # Many Node apps read PORT from the environment.
                     "command": f"PORT={{port}} node {entry}",
                     "cwd": rel,
+                    "port": None,
                     "kind": "backend",
                 })
                 break
@@ -167,6 +180,7 @@ def _detect_in_dir(d: Path, rel: str) -> list[dict]:
                 "name": f"{label}-django",
                 "command": "python manage.py runserver 0.0.0.0:{port}",
                 "cwd": rel,
+                "port": None,
                 "kind": "backend",
             })
         else:
@@ -179,6 +193,19 @@ def _detect_in_dir(d: Path, rel: str) -> list[dict]:
                 "kind": kind,
                 "port": None,
             })
+
+    # --- Dockerfile (only if this dir produced nothing else) ---
+    if not out and (d / "Dockerfile").is_file():
+        port = _dockerfile_port(d / "Dockerfile")
+        image = f"cloudide_{(rel or 'app').replace('/', '_')}".lower()
+        run = f"docker run --rm -p {port}:{port} {image}" if port else f"docker run --rm {image}"
+        out.append({
+            "name": f"{label}-docker",
+            "command": f"docker build -t {image} . && {run}",
+            "cwd": rel,
+            "port": port,
+            "kind": "fixed" if port else None,
+        })
 
     return out
 
@@ -198,19 +225,54 @@ def _find_python_entry(d: Path) -> Path | None:
 
 
 def _node_command(pkg: Path) -> str | None:
+    """Build a Node dev command that binds 0.0.0.0 on a deterministic ``{port}``.
+
+    Forcing host and port is what makes the preview reliable: otherwise Vite,
+    Next, CRA, etc. each pick their own default (5173 / 3000 / 3000) and bind to
+    localhost, so the preview and the app disagree on where to look.
+    """
     try:
-        scripts = json.loads(pkg.read_text(encoding="utf-8")).get("scripts", {})
+        data = json.loads(pkg.read_text(encoding="utf-8"))
     except (ValueError, OSError):
-        scripts = {}
+        data = {}
+    scripts = data.get("scripts", {})
+    deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
+
     if "dev" in scripts:
         run = "npm run dev"
     elif "start" in scripts:
         run = "npm start"
+    elif "vite" in deps:
+        run = "npx --yes vite"
     else:
         return None
-    # Install first if dependencies aren't present yet.
+
+    if "next" in deps:
+        cmd = f"{run} -- -p {{port}} -H 0.0.0.0"
+    elif "react-scripts" in deps:
+        cmd = f"HOST=0.0.0.0 PORT={{port}} BROWSER=none {run}"
+    elif any(k in deps for k in
+             ("vite", "@angular/core", "vue", "nuxt", "svelte", "@sveltejs/kit")):
+        cmd = f"{run} -- --host 0.0.0.0 --port {{port}}"
+    else:
+        # Unknown toolchain: pass common flags through; harmless if ignored.
+        cmd = f"{run} -- --host 0.0.0.0 --port {{port}}"
+
     prefix = "" if (pkg.parent / "node_modules").is_dir() else "npm install && "
-    return f"{prefix}{run}"
+    return f"{prefix}{cmd}"
+
+
+def _dockerfile_port(dockerfile: Path) -> int | None:
+    try:
+        for line in dockerfile.read_text(encoding="utf-8", errors="replace").splitlines():
+            stripped = line.strip()
+            if stripped.upper().startswith("EXPOSE"):
+                parts = stripped.split()
+                if len(parts) > 1 and parts[1].split("/")[0].isdigit():
+                    return int(parts[1].split("/")[0])
+    except OSError:
+        pass
+    return None
 
 
 def _python_command(entry: Path, module: str) -> tuple[str, str]:

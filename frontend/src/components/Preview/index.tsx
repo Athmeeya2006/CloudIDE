@@ -1,8 +1,8 @@
-import { useState, useRef } from 'react';
-import { RefreshCw, ExternalLink, X, Globe, AlertCircle } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { RefreshCw, ExternalLink, X, Globe, AlertCircle, Loader2 } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
 import { useProcessStore } from '../../stores/processStore';
-import { rawFileUrl, previewProxyUrl } from '../../api/client';
+import { rawFileUrl, previewProxyUrl, portFromProxyUrl, previewApi } from '../../api/client';
 
 // Ports a user's app might serve on. 8000 is intentionally excluded: it is the
 // IDE's own backend API and cannot be reused by user apps.
@@ -20,6 +20,7 @@ export function PreviewPanel() {
   const [customUrl, setCustomUrl] = useState('');
   const [error, setError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [waiting, setWaiting] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const runningProcess = processes.find(p => p.status === 'running');
@@ -27,11 +28,40 @@ export function PreviewPanel() {
   // when the IDE backend runs on a different machine than the browser.
   const activeUrl = previewUrl || (runningProcess ? previewProxyUrl(5173) : '');
 
+  // When the preview points at a proxied port, wait for that dev server to come
+  // up (npm install + bundler boot can take a while) before loading the iframe,
+  // instead of flashing a connection error. Polls until it is listening.
+  useEffect(() => {
+    setError(false);
+    const port = activeUrl ? portFromProxyUrl(activeUrl) : null;
+    if (!activeUrl || port === null) { setWaiting(false); return; }
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const start = Date.now();
+    setWaiting(true);
+
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        const { listening } = await previewApi.status(port);
+        if (cancelled) return;
+        if (listening) { setWaiting(false); return; }
+      } catch { /* keep trying */ }
+      if (Date.now() - start > 120000) { setWaiting(false); setError(true); return; }
+      timer = setTimeout(poll, 1500);
+    };
+    poll();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [activeUrl, reloadKey]);
+
   const reload = () => {
     setError(false);
     // Remount the iframe; re-assigning the same src is unreliable cross-origin.
     setReloadKey(k => k + 1);
   };
+
+  const previewPort = activeUrl ? portFromProxyUrl(activeUrl) : null;
 
   const navigate = (url: string) => {
     setError(false);
@@ -106,6 +136,8 @@ export function PreviewPanel() {
       <div className="flex-1 overflow-hidden relative">
         {!activeUrl ? (
           <NoPreview onOpen={navigate} />
+        ) : waiting ? (
+          <Starting port={previewPort} onOpenAnyway={() => setWaiting(false)} />
         ) : error ? (
           <PreviewError url={activeUrl} onRetry={reload} />
         ) : (
@@ -143,6 +175,29 @@ function NoPreview({ onOpen }: { onOpen: (url: string) => void }) {
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function Starting({ port, onOpenAnyway }: { port: number | null; onOpenAnyway: () => void }) {
+  return (
+    <div className="h-full flex flex-col items-center justify-center text-ide-text-muted gap-4 bg-ide-bg">
+      <Loader2 size={34} className="animate-spin text-ide-accent" />
+      <div className="text-center">
+        <div className="text-[14px] text-ide-text mb-1">
+          Starting your app{port ? ` on port ${port}` : ''}…
+        </div>
+        <div className="text-[12px] max-w-[260px]">
+          The first run can take up to a minute while dependencies install and the
+          dev server boots. This will load automatically.
+        </div>
+      </div>
+      <button
+        onClick={onOpenAnyway}
+        className="text-[12px] px-3 py-1.5 border border-ide-border hover:border-ide-accent text-ide-text transition-colors"
+      >
+        Open now
+      </button>
     </div>
   );
 }

@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"Cloud IDE backend starting. Workspace: {settings.workspace_path}")
     metadata.init_db()
     yield
+    await preview.aclose_client()
     logger.info("Shutting down.")
 
 
@@ -74,6 +75,7 @@ app.include_router(processes.router)
 app.include_router(database.router)
 app.include_router(git.router)
 app.include_router(preview.router)
+app.include_router(preview.status_router)
 
 
 @app.get("/health")

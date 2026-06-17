@@ -10,6 +10,7 @@ from __future__ import annotations
 import secrets
 import sqlite3
 import time
+from contextlib import contextmanager
 
 from app.security import workspace_root
 
@@ -55,13 +56,24 @@ CREATE INDEX IF NOT EXISTS idx_pdb_project ON project_databases(project_id);
 """
 
 
-def _connect() -> sqlite3.Connection:
+@contextmanager
+def _connect():
+    """Open a metadata connection, commit on success, and always close it.
+
+    ``with sqlite3.connect(...) as conn`` only manages the transaction, not the
+    connection, so a plain ``with`` would leak the connection (and its file
+    handles) until garbage collection. This closes it deterministically.
+    """
     _META_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(_META_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def init_db() -> None:

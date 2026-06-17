@@ -31,6 +31,17 @@ export function previewProxyUrl(port: number): string {
   return `${BASE}/api/preview/${port}/`;
 }
 
+/** Extract the port from a previewProxyUrl, or null for other URLs. */
+export function portFromProxyUrl(url: string): number | null {
+  const m = url.match(/\/api\/preview\/(\d{2,5})\/?($|[?#])/);
+  return m ? Number(m[1]) : null;
+}
+
+export const previewApi = {
+  status: (port: number): Promise<{ listening: boolean }> =>
+    api.get(`/api/preview-status/${port}`).then(r => r.data),
+};
+
 export const api = axios.create({
   baseURL: BASE,
   timeout: 30000,
