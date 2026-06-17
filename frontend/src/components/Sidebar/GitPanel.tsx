@@ -6,7 +6,7 @@ import {
 import { gitApi } from '../../api/client';
 import { useFileStore } from '../../stores/fileStore';
 import { useUIStore } from '../../stores/uiStore';
-import { cn } from '../../utils';
+import { cn, getErrorMessage } from '../../utils';
 import type { GitStatus } from '../../types';
  
 // ---- Diff Viewer ----
@@ -135,6 +135,8 @@ export function GitPanel() {
  
   useEffect(() => {
     if (view === 'history') loadHistory();
+    // loadHistory closes over `workspace`, already in the dependency list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, workspace]);
  
   const showDiff = async (file: string) => {
@@ -157,8 +159,8 @@ export function GitPanel() {
       setCommitMsg('');
       notify('Committed successfully', 'success');
       await refresh();
-    } catch (e: any) {
-      notify(e.response?.data?.detail || 'Commit failed', 'error');
+    } catch (e: unknown) {
+      notify(getErrorMessage(e, 'Commit failed'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -170,8 +172,8 @@ export function GitPanel() {
       const res = await gitApi.pull(workspace);
       notify(res.output?.trim() || 'Up to date', 'success');
       await refresh();
-    } catch (e: any) {
-      notify(e.response?.data?.detail || 'Pull failed', 'error');
+    } catch (e: unknown) {
+      notify(getErrorMessage(e, 'Pull failed'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -183,8 +185,8 @@ export function GitPanel() {
       await gitApi.push(workspace);
       notify('Pushed successfully', 'success');
       await refresh();
-    } catch (e: any) {
-      notify(e.response?.data?.detail || 'Push failed', 'error');
+    } catch (e: unknown) {
+      notify(getErrorMessage(e, 'Push failed'), 'error');
     } finally {
       setActionLoading(null);
     }

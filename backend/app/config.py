@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,16 +11,26 @@ class Settings(BaseSettings):
 
     @property
     def origins_list(self) -> list[str]:
-        return [o.strip() for o in self.allowed_origins.split(",")]
+        return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
 
     @property
     def workspace_path(self) -> Path:
+        """Workspace root, created on first use.
+
+        Resolves ``workspace_base`` and ensures it exists. If that location
+        cannot be created (e.g. a read-only ``/workspaces`` mount), falls back
+        to ``<repo>/workspaces``. The common case — the directory already
+        exists — short-circuits with a single ``stat``, so this stays cheap to
+        call on every request that needs the root.
+        """
         p = Path(self.workspace_base)
+        if p.is_dir():
+            return p
         try:
             p.mkdir(parents=True, exist_ok=True)
             return p
-        except PermissionError:
-            # Fallback to workspaces directory inside the project root
+        except OSError:
+            # Fallback to a workspaces directory inside the project root.
             fallback = Path(__file__).resolve().parents[2] / "workspaces"
             fallback.mkdir(parents=True, exist_ok=True)
             return fallback

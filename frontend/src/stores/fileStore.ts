@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { FileNode, OpenTab } from '../types';
 import { filesApi } from '../api/client';
+import { getErrorMessage } from '../utils';
 import { useUIStore } from './uiStore';
 
 interface FileStore {
@@ -41,8 +42,8 @@ export const useFileStore = create<FileStore>((set, get) => ({
     try {
       const tree = await filesApi.tree(get().workspace);
       set({ fileTree: tree, loading: false });
-    } catch (e: any) {
-      set({ error: e.message, loading: false });
+    } catch (e: unknown) {
+      set({ error: getErrorMessage(e, 'Failed to load file tree'), loading: false });
     }
   },
 
@@ -97,8 +98,8 @@ export const useFileStore = create<FileStore>((set, get) => ({
         openTabs: [...openTabs, tab],
         activeTabPath: node.path,
       });
-    } catch (e: any) {
-      const msg = e.response?.data?.detail || e.message || 'Failed to open file';
+    } catch (e: unknown) {
+      const msg = getErrorMessage(e, 'Failed to open file');
       set({ error: msg });
       useUIStore.getState().notify(msg, 'error');
     }
@@ -140,9 +141,8 @@ export const useFileStore = create<FileStore>((set, get) => ({
           t.path === path ? { ...t, modified: false } : t,
         ),
       }));
-    } catch (e: any) {
-      const msg = e.response?.data?.detail || e.message || 'Failed to save file';
-      useUIStore.getState().notify(msg, 'error');
+    } catch (e: unknown) {
+      useUIStore.getState().notify(getErrorMessage(e, 'Failed to save file'), 'error');
       throw e;
     }
   },

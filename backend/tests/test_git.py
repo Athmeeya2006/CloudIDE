@@ -1,6 +1,8 @@
-import pytest
 import subprocess
-from httpx import AsyncClient, ASGITransport
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
 from app.main import app
 
 
@@ -12,13 +14,13 @@ def git_repo(tmp_path):
     subprocess.run(["git", "init"], cwd=str(default_ws), capture_output=True)
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=str(default_ws), capture_output=True)
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(default_ws), capture_output=True)
-    
+
     # Create a file and commit it
     test_file = default_ws / "test.txt"
     test_file.write_text("hello")
     subprocess.run(["git", "add", "test.txt"], cwd=str(default_ws), capture_output=True)
     subprocess.run(["git", "commit", "-m", "initial commit"], cwd=str(default_ws), capture_output=True)
-    
+
     return tmp_path
 
 

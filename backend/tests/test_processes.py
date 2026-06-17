@@ -75,7 +75,6 @@ def test_list_processes():
 
 
 def test_logs_ws_unknown_process():
-    with TestClient(app) as c:
-        with c.websocket_connect("/api/processes/nonexistent/logs") as ws:
-            msg = ws.receive_json()
-            assert "error" in msg
+    with TestClient(app) as c, c.websocket_connect("/api/processes/nonexistent/logs") as ws:
+        msg = ws.receive_json()
+        assert "error" in msg

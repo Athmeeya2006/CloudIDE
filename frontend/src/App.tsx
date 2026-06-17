@@ -13,20 +13,34 @@ import { QuickOpenDialog } from './components/Modals/QuickOpenDialog';
 import { SettingsDialog } from './components/Modals/SettingsDialog';
 import { useFileStore } from './stores/fileStore';
 import { useUIStore } from './stores/uiStore';
+import { useAuthStore } from './stores/authStore';
+import { useProjectStore } from './stores/projectStore';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { LoginScreen } from './components/Auth/LoginScreen';
+import { ProjectPicker } from './components/Auth/ProjectPicker';
 
 export default function App() {
   const { refreshTree, saveActiveFile } = useFileStore();
+  const { token, restore } = useAuthStore();
+  const { current: currentProject } = useProjectStore();
   const {
     sidebarOpen, bottomOpen, previewOpen,
     openBottom, openQuickOpen,
     openSettings, openSidebar,
   } = useUIStore();
 
+  // Validate any stored session on first load.
   useEffect(() => {
-    refreshTree();
+    restore();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Load the file tree whenever a project is opened (workspace changes).
+  useEffect(() => {
+    if (currentProject) refreshTree();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentProject?.id]);
 
   // Save
   useHotkeys('ctrl+s, meta+s', (e) => {
@@ -69,6 +83,10 @@ export default function App() {
     openSettings();
   }, { enableOnFormTags: true });
 
+  // ---- Gating: auth -> project selection -> IDE ----
+  if (!token) return <LoginScreen />;
+  if (!currentProject) return <ProjectPicker />;
+
   return (
     <div className="flex flex-col h-screen bg-ide-bg text-ide-text select-none overflow-hidden">
       {/* Title bar */}
@@ -80,6 +98,14 @@ export default function App() {
             <rect x="18" y="20" width="8" height="2" rx="1" fill="white"/>
           </svg>
           <span className="text-[11px] font-medium text-ide-text-muted tracking-widest uppercase">Cloud IDE</span>
+          <span className="text-ide-text-dim text-[11px]">/</span>
+          <button
+            onClick={() => useProjectStore.getState().closeProject()}
+            title="Switch project"
+            className="text-[11px] text-ide-text hover:text-ide-accent transition-colors"
+          >
+            {currentProject.name}
+          </button>
         </div>
         <div className="flex items-center gap-1 text-[11px] text-ide-text-muted">
           <button

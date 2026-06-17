@@ -21,9 +21,12 @@ export function LogsPanel() {
     return () => {
       activeWsRef.current?.close();
     };
+    // Mount-only: fetch the process list once and tear the socket down on unmount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const activeProcess = processes.find(p => p.id === activeProcessId);
+  const activeLogCount = logsMap[activeProcessId || '']?.length;
 
   // Manage WS logs stream for active process
   useEffect(() => {
@@ -53,6 +56,9 @@ export function LogsPanel() {
     return () => {
       ws.close();
     };
+    // Re-subscribe only when the active process (or its OS pid on restart) changes;
+    // the store actions are stable references.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProcessId, activeProcess?.os_pid]);
 
   // Scroll to bottom on new logs
@@ -60,7 +66,7 @@ export function LogsPanel() {
     if (logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
-  }, [logsMap[activeProcessId || '']?.length]);
+  }, [activeLogCount]);
 
   const handleStartProcess = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,11 +76,11 @@ export function LogsPanel() {
     const cwd = workspace;
 
     try {
-      const proc = await runCommand(cmdInput, cwd, name);
+      await runCommand(cmdInput, cwd, name);
       setCmdInput('');
       setNameInput('');
       notify(`Process "${name}" started`, 'success');
-    } catch (err) {
+    } catch {
       notify('Failed to start process', 'error');
     }
   };

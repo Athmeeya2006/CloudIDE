@@ -21,7 +21,9 @@ export function PreviewPanel() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const runningProcess = processes.find(p => p.status === 'running');
-  const activeUrl = previewUrl || (runningProcess ? `http://localhost:3000` : '');
+  // Default to the port the starter app (main.py) serves on; the address bar
+  // always shows the exact host being previewed, and the port buttons switch it.
+  const activeUrl = previewUrl || (runningProcess ? `http://localhost:8000` : '');
 
   const reload = () => {
     setError(false);

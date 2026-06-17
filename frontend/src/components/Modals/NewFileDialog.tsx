@@ -3,6 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { FilePlus, FolderPlus, X, Loader2 } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
 import { useFileStore } from '../../stores/fileStore';
+import { getErrorMessage } from '../../utils';
 
 export function NewFileDialog() {
   const { newFileDialogOpen, newFilePath, newFileIsDir, closeNewFileDialog, notify } = useUIStore();
@@ -25,8 +26,8 @@ export function NewFileDialog() {
       await createFile(fullPath, newFileIsDir);
       notify(`Created ${newFileIsDir ? 'folder' : 'file'}: ${name}`, 'success');
       closeNewFileDialog();
-    } catch (e: any) {
-      notify(e.response?.data?.detail || 'Create failed', 'error');
+    } catch (e: unknown) {
+      notify(getErrorMessage(e, 'Create failed'), 'error');
     } finally {
       setLoading(false);
     }

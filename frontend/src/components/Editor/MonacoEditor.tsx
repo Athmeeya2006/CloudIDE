@@ -122,7 +122,7 @@ function buildEditorOptions(
     mouseWheelZoom: true,
     stickyScroll: { enabled: true, maxLineCount: 5 },
     colorDecorators: true,
-    lightbulb: { enabled: 'onCode' as any },
+    lightbulb: { enabled: 'onCode' as MonacoType.editor.ShowLightbulbIconMode },
     hover: { enabled: true, delay: 300 },
     scrollbar: {
       useShadows: false,
@@ -176,6 +176,9 @@ export function MonacoEditor() {
       editor.setModel(model);
       lastStoreContentRef.current = model.getValue();
     }
+    // Keyed on the active path; reading the matching tab from the closure is
+    // intentional so a content edit doesn't re-swap the model.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTabPath, monacoHook]);
  
   // Sync external content changes (e.g. git pull) into the editor model
@@ -192,6 +195,8 @@ export function MonacoEditor() {
         () => null,
       );
     }
+    // Runs on external content changes; the active tab is resolved from state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab?.content, monacoHook]);
  
   // Dispose models for closed tabs
@@ -256,6 +261,9 @@ export function MonacoEditor() {
       updateContent(activeTab.path, value);
     });
     return () => disposable.dispose();
+    // Re-attach the change listener only when the active tab changes; attaching
+    // it per keystroke (via activeTab/updateContent deps) would be wrong.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTabPath, monacoHook]);
  
   if (!activeTab) return null;

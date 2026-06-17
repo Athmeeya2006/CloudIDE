@@ -17,7 +17,7 @@ interface ProcessStore {
   clearLogs: (id: string) => void;
 }
 
-export const useProcessStore = create<ProcessStore>((set, get) => ({
+export const useProcessStore = create<ProcessStore>((set) => ({
   processes: [],
   activeProcessId: null,
   logsMap: {},

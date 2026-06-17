@@ -1,22 +1,69 @@
-import { useState, useEffect } from 'react';
-import { Database, Table, RefreshCw, Play, ChevronLeft, ChevronRight } from 'lucide-react';
-import { dbApi } from '../../api/client';
+import { useState, useEffect, useMemo } from 'react';
+import { Table, RefreshCw, Play, ChevronLeft, ChevronRight, Database } from 'lucide-react';
+import { dbApi, engineDbApi } from '../../api/client';
 import { useFileStore } from '../../stores/fileStore';
-import { useUIStore } from '../../stores/uiStore';
-import { cn } from '../../utils';
-import type { DbColumn } from '../../types';
+import { useProjectStore } from '../../stores/projectStore';
+import { cn, getErrorMessage } from '../../utils';
 
-interface DbFile { name: string; path: string; size: number }
+/** Column shape unified across engines. */
+interface Col { name: string; type: string; pk?: boolean; notnull?: boolean }
+
+/**
+ * A "source" is one browsable database, regardless of engine. Provisioned
+ * project databases (any engine) are addressed by their numeric id; loose
+ * `.sqlite` files discovered in the workspace are addressed by path.
+ */
+interface DbSource {
+  key: string;
+  label: string;
+  engine: string;
+  tables: () => Promise<string[]>;
+  schema: (t: string) => Promise<{ columns: Col[]; row_count: number }>;
+  rows: (t: string, limit: number, offset: number) => Promise<{ rows: Record<string, unknown>[]; total: number }>;
+  query: (sql: string) => Promise<{ columns: string[]; rows: Record<string, unknown>[] }>;
+}
+
+const ENGINE_LABEL: Record<string, string> = {
+  sqlite: 'SQLite', postgres: 'PostgreSQL', mysql: 'MySQL', mongodb: 'MongoDB',
+};
+
+function provisionedSource(dbId: number, engine: string, name: string): DbSource {
+  return {
+    key: `pdb:${dbId}`,
+    label: `${name} · ${ENGINE_LABEL[engine] ?? engine}`,
+    engine,
+    tables: () => engineDbApi.tables(dbId).then(d => d.tables),
+    schema: (t) => engineDbApi.schema(dbId, t),
+    rows: (t, limit, offset) => engineDbApi.rows(dbId, t, limit, offset),
+    query: (sql) => engineDbApi.query(dbId, sql),
+  };
+}
+
+function sqliteFileSource(path: string, name: string): DbSource {
+  return {
+    key: `file:${path}`,
+    label: `${name} · file`,
+    engine: 'sqlite',
+    tables: () => dbApi.listTables(path).then(d => d.tables),
+    schema: (t) => dbApi.schema(path, t).then(d => ({
+      columns: d.columns.map((c: { name: string; type: string; pk: number; notnull: number }) =>
+        ({ name: c.name, type: c.type, pk: !!c.pk, notnull: !!c.notnull })),
+      row_count: d.row_count,
+    })),
+    rows: (t, limit, offset) => dbApi.rows(path, t, limit, offset),
+    query: (sql) => dbApi.query(path, sql),
+  };
+}
 
 export function DatabaseViewer() {
   const { workspace } = useFileStore();
-  const { notify } = useUIStore();
+  const projectDbs = useProjectStore(s => s.current?.databases ?? []);
 
-  const [dbs, setDbs] = useState<DbFile[]>([]);
-  const [selectedDb, setSelectedDb] = useState<string | null>(null);
+  const [fileDbs, setFileDbs] = useState<{ path: string; name: string }[]>([]);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [tables, setTables] = useState<string[]>([]);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
-  const [schema, setSchema] = useState<DbColumn[]>([]);
+  const [schema, setSchema] = useState<Col[]>([]);
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
@@ -28,87 +75,107 @@ export function DatabaseViewer() {
   const [view, setView] = useState<'data' | 'schema' | 'query'>('data');
   const [loading, setLoading] = useState(false);
 
-  // Load databases
+  // Build the unified source list: provisioned project databases first, then
+  // any loose .sqlite files found in the workspace.
+  const sources = useMemo<DbSource[]>(() => {
+    const provisioned = projectDbs.map(d =>
+      provisionedSource(d.id, d.engine, d.db_name.split('/').pop() || d.engine));
+    const files = fileDbs
+      // Skip the provisioned sqlite file so it isn't listed twice.
+      .filter(f => !projectDbs.some(d => d.engine === 'sqlite' && d.db_name.endsWith(f.name)))
+      .map(f => sqliteFileSource(f.path, f.name));
+    return [...provisioned, ...files];
+  }, [projectDbs, fileDbs]);
+
+  const source = sources.find(s => s.key === selectedKey) ?? null;
+
+  // Discover loose sqlite files for the active workspace.
   useEffect(() => {
-    dbApi.listDatabases(workspace).then(d => {
-      setDbs(d.databases);
-      if (d.databases.length > 0 && !selectedDb) {
-        setSelectedDb(d.databases[0].path);
-      }
-    });
+    dbApi.listDatabases(workspace)
+      .then(d => setFileDbs(d.databases.map((x: { path: string; name: string }) => ({ path: x.path, name: x.name }))))
+      .catch(() => setFileDbs([]));
   }, [workspace]);
 
-  // Load tables when DB selected
+  // Keep a valid selection as sources change.
   useEffect(() => {
-    if (!selectedDb) return;
-    setLoading(true);
-    dbApi.listTables(selectedDb)
-      .then(d => {
-        setTables(d.tables);
-        setSelectedTable(d.tables[0] ?? null);
-      })
-      .catch(() => setTables([]))
-      .finally(() => setLoading(false));
-  }, [selectedDb]);
+    if (sources.length === 0) { setSelectedKey(null); return; }
+    if (!selectedKey || !sources.some(s => s.key === selectedKey)) {
+      setSelectedKey(sources[0].key);
+    }
+  }, [sources, selectedKey]);
 
-  // Load schema + rows when table selected
+  // Load tables when source changes.
   useEffect(() => {
-    if (!selectedDb || !selectedTable) return;
+    if (!source) { setTables([]); setSelectedTable(null); return; }
+    setLoading(true);
+    source.tables()
+      .then(t => { setTables(t); setSelectedTable(t[0] ?? null); })
+      .catch(() => { setTables([]); setSelectedTable(null); })
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKey]);
+
+  // Load schema + first page when table changes.
+  useEffect(() => {
+    if (!source || !selectedTable) return;
     setPage(0);
     setLoading(true);
-    Promise.all([
-      dbApi.schema(selectedDb, selectedTable),
-      dbApi.rows(selectedDb, selectedTable, PAGE_SIZE, 0),
-    ]).then(([sch, r]) => {
-      setSchema(sch.columns);
-      setRows(r.rows);
-      setColumns(r.rows.length > 0 ? Object.keys(r.rows[0]) : sch.columns.map((c: DbColumn) => c.name));
-      setTotal(r.total);
-    }).finally(() => setLoading(false));
-  }, [selectedDb, selectedTable]);
+    Promise.all([source.schema(selectedTable), source.rows(selectedTable, PAGE_SIZE, 0)])
+      .then(([sch, r]) => {
+        setSchema(sch.columns);
+        setRows(r.rows);
+        setColumns(r.rows.length > 0 ? Object.keys(r.rows[0]) : sch.columns.map(c => c.name));
+        setTotal(r.total);
+      })
+      .catch(() => { setSchema([]); setRows([]); setColumns([]); setTotal(0); })
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKey, selectedTable]);
 
   const loadPage = async (p: number) => {
-    if (!selectedDb || !selectedTable) return;
-    const r = await dbApi.rows(selectedDb, selectedTable, PAGE_SIZE, p * PAGE_SIZE);
+    if (!source || !selectedTable) return;
+    const r = await source.rows(selectedTable, PAGE_SIZE, p * PAGE_SIZE);
     setRows(r.rows);
+    setColumns(r.rows.length > 0 ? Object.keys(r.rows[0]) : columns);
     setPage(p);
   };
 
   const runQuery = async () => {
-    if (!selectedDb || !query.trim()) return;
+    if (!source || !query.trim()) return;
     setQueryError('');
     setQueryResult(null);
     try {
-      const r = await dbApi.query(selectedDb, query);
+      const r = await source.query(query);
       setQueryResult({ cols: r.columns, rows: r.rows });
-    } catch (e: any) {
-      setQueryError(e.response?.data?.detail || e.message);
+    } catch (e: unknown) {
+      setQueryError(getErrorMessage(e, 'Query failed'));
     }
   };
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
+  const queryPlaceholder = source?.engine === 'mongodb'
+    ? '{"collection":"users","filter":{}}   (Ctrl+Enter, read only)'
+    : 'SELECT * FROM users LIMIT 100;    (Ctrl+Enter to run, read only)';
 
   return (
     <div className="h-full flex overflow-hidden">
       {/* Left: DB + Table list */}
-      <div className="w-52 border-r border-ide-border flex flex-col bg-[#252526] shrink-0">
-        {/* DB selector */}
+      <div className="w-56 border-r border-ide-border flex flex-col bg-[#252526] shrink-0">
         <div className="px-2 py-1.5 border-b border-ide-border">
           <select
-            value={selectedDb || ''}
-            onChange={e => setSelectedDb(e.target.value)}
+            value={selectedKey || ''}
+            onChange={e => { setSelectedKey(e.target.value); setSelectedTable(null); }}
             className="w-full bg-ide-bg text-ide-text text-[12px] px-1.5 py-1 border border-ide-border focus:border-ide-accent outline-none"
           >
-            {dbs.length === 0 && <option value="">No databases found</option>}
-            {dbs.map(d => (
-              <option key={d.path} value={d.path}>{d.name}</option>
-            ))}
+            {sources.length === 0 && <option value="">No databases</option>}
+            {sources.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
           </select>
         </div>
 
-        {/* Table list */}
         <div className="flex-1 overflow-y-auto py-1">
-          <div className="px-2 py-1 text-[10px] text-ide-text-dim uppercase tracking-wider">Tables</div>
+          <div className="px-2 py-1 text-[10px] text-ide-text-dim uppercase tracking-wider flex items-center gap-1">
+            <Database size={10} /> {source?.engine === 'mongodb' ? 'Collections' : 'Tables'}
+          </div>
           {loading ? (
             <div className="px-3 py-2 text-[12px] text-ide-text-dim">Loading...</div>
           ) : tables.length === 0 ? (
@@ -133,9 +200,8 @@ export function DatabaseViewer() {
         </div>
       </div>
 
-      {/* Right: Data / Schema / Query */}
+      {/* Right */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Sub-tabs */}
         <div className="flex items-center bg-[#252526] border-b border-ide-border shrink-0 h-8">
           {(['data', 'schema', 'query'] as const).map(v => (
             <button
@@ -164,22 +230,19 @@ export function DatabaseViewer() {
           </button>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-hidden flex flex-col">
           {view === 'data' && (
             <>
               <div className="flex-1 overflow-auto">
                 {rows.length === 0 ? (
                   <div className="p-4 text-ide-text-dim text-[13px]">
-                    {selectedTable ? 'No rows in this table.' : 'Select a table.'}
+                    {selectedTable ? 'No rows yet. Use your app or the live preview to add some.' : 'Select a table.'}
                   </div>
                 ) : (
                   <DataTable columns={columns} rows={rows} />
                 )}
               </div>
-              {total > PAGE_SIZE && (
-                <Pagination page={page} total={totalPages} onPage={loadPage} />
-              )}
+              {total > PAGE_SIZE && <Pagination page={page} total={totalPages} onPage={loadPage} />}
             </>
           )}
 
@@ -195,10 +258,11 @@ export function DatabaseViewer() {
 
           {view === 'query' && (
             <QueryRunner
-              dbPath={selectedDb}
+              enabled={!!source}
               result={queryResult}
               error={queryError}
               query={query}
+              placeholder={queryPlaceholder}
               onQueryChange={setQuery}
               onRun={runQuery}
             />
@@ -250,24 +314,22 @@ function CellValue({ value }: { value: unknown }) {
   return <>{str}</>;
 }
 
-function SchemaTable({ schema }: { schema: DbColumn[] }) {
+function SchemaTable({ schema }: { schema: Col[] }) {
   return (
     <table className="w-full text-[12px] font-mono">
       <thead className="sticky top-0 bg-[#252526]">
         <tr>
-          {['#', 'Name', 'Type', 'Not Null', 'Default', 'PK'].map(h => (
+          {['Name', 'Type', 'Not Null', 'PK'].map(h => (
             <th key={h} className="text-left px-3 py-1.5 text-ide-text-muted border-b border-r border-ide-border font-normal">{h}</th>
           ))}
         </tr>
       </thead>
       <tbody>
         {schema.map(col => (
-          <tr key={col.cid} className="hover:bg-ide-hover border-b border-[#2d2d2d]">
-            <td className="px-3 py-1 text-ide-text-dim">{col.cid}</td>
+          <tr key={col.name} className="hover:bg-ide-hover border-b border-[#2d2d2d]">
             <td className="px-3 py-1 text-[#9cdcfe] font-medium">{col.name}</td>
             <td className="px-3 py-1 text-[#4ec9b0]">{col.type}</td>
             <td className="px-3 py-1">{col.notnull ? <span className="text-ide-red">YES</span> : <span className="text-ide-text-dim">NO</span>}</td>
-            <td className="px-3 py-1 text-ide-text-dim">{col.dflt_value ?? '-'}</td>
             <td className="px-3 py-1">{col.pk ? <span className="text-ide-yellow">🔑</span> : null}</td>
           </tr>
         ))}
@@ -280,18 +342,10 @@ function Pagination({ page, total, onPage }: { page: number; total: number; onPa
   return (
     <div className="flex items-center justify-end gap-2 px-3 py-1 border-t border-ide-border bg-[#252526] shrink-0">
       <span className="text-[11px] text-ide-text-dim">Page {page + 1} / {total}</span>
-      <button
-        disabled={page === 0}
-        onClick={() => onPage(page - 1)}
-        className="p-0.5 disabled:opacity-30 text-ide-text-muted hover:text-ide-text"
-      >
+      <button disabled={page === 0} onClick={() => onPage(page - 1)} className="p-0.5 disabled:opacity-30 text-ide-text-muted hover:text-ide-text">
         <ChevronLeft size={14} />
       </button>
-      <button
-        disabled={page >= total - 1}
-        onClick={() => onPage(page + 1)}
-        className="p-0.5 disabled:opacity-30 text-ide-text-muted hover:text-ide-text"
-      >
+      <button disabled={page >= total - 1} onClick={() => onPage(page + 1)} className="p-0.5 disabled:opacity-30 text-ide-text-muted hover:text-ide-text">
         <ChevronRight size={14} />
       </button>
     </div>
@@ -299,36 +353,33 @@ function Pagination({ page, total, onPage }: { page: number; total: number; onPa
 }
 
 function QueryRunner({
-  dbPath, result, error, query, onQueryChange, onRun,
+  enabled, result, error, query, placeholder, onQueryChange, onRun,
 }: {
-  dbPath: string | null;
+  enabled: boolean;
   result: { cols: string[]; rows: Record<string, unknown>[] } | null;
   error: string;
   query: string;
+  placeholder: string;
   onQueryChange: (q: string) => void;
   onRun: () => void;
 }) {
   return (
     <div className="flex flex-col h-full">
-      {/* Query editor */}
       <div className="border-b border-ide-border shrink-0 p-2">
         <div className="relative">
           <textarea
             value={query}
             onChange={e => onQueryChange(e.target.value)}
             onKeyDown={e => {
-              if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                e.preventDefault();
-                onRun();
-              }
+              if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); onRun(); }
             }}
-            placeholder="SELECT * FROM users LIMIT 100;    (Ctrl+Enter to run - read only)"
+            placeholder={placeholder}
             rows={3}
             className="w-full bg-ide-bg text-ide-text text-[12px] font-mono px-3 py-2 border border-ide-border focus:border-ide-accent outline-none resize-none placeholder:text-ide-text-dim"
           />
           <button
             onClick={onRun}
-            disabled={!dbPath || !query.trim()}
+            disabled={!enabled || !query.trim()}
             className="absolute right-2 bottom-2 flex items-center gap-1 px-2 py-1 bg-ide-accent hover:bg-[#1a8ad4] disabled:opacity-40 text-white text-[12px] transition-colors"
           >
             <Play size={11} fill="white" /> Run
@@ -337,7 +388,6 @@ function QueryRunner({
         <div className="text-[10px] text-ide-text-dim mt-1">Read-only queries only. Ctrl+Enter to execute.</div>
       </div>
 
-      {/* Results */}
       <div className="flex-1 overflow-auto">
         {error && (
           <div className="m-2 p-2 bg-[#3d1212] border border-ide-red text-ide-red text-[12px] font-mono">{error}</div>

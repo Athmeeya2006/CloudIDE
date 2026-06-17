@@ -46,7 +46,6 @@ export function EditorArea() {
     return () => window.removeEventListener('keydown', onKey);
   }, [handleRun]);
 
-  const activeTab = openTabs.find(t => t.path === activeTabPath);
   const runConfig = activeTabPath ? getRunConfig(activeTabPath, workspace) : null;
 
   return (

@@ -1,5 +1,7 @@
 import pytest
+
 from app.config import settings
+
 
 @pytest.fixture(autouse=True)
 def configure_test_settings(tmp_path, monkeypatch):

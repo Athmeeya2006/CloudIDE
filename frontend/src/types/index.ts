@@ -74,5 +74,30 @@ export interface EditorSettings {
   formatOnSave: boolean;
 }
 
+export type DbEngine = 'sqlite' | 'postgres' | 'mysql' | 'mongodb';
+
+export interface ProjectDatabase {
+  id: number;
+  project_id: string;
+  engine: DbEngine;
+  db_name: string;
+  status: string;
+}
+
+export interface Project {
+  id: string;
+  user_id: number;
+  name: string;
+  slug: string;
+  workspace: string;
+  created_at: number;
+  databases?: ProjectDatabase[];
+}
+
+export interface AuthUser {
+  id: number;
+  email: string;
+}
+
 export type SidebarView = 'explorer' | 'search' | 'git' | 'database';
 export type BottomView = 'terminal' | 'logs' | 'db-viewer' | 'problems';

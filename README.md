@@ -60,6 +60,18 @@ graph TD
 
 ---
 
+## 🗄️ Accounts, Projects, and Multi-Engine Databases
+
+* **Email/password accounts**: users sign in and own their own set of projects. Passwords are salted and hashed with PBKDF2, and sessions use signed tokens.
+* **Per-user projects**: each project has its own workspace directory and its own provisioned databases. The file explorer, terminal, processes, Git, and database viewer all operate within the selected project.
+* **Databases across four engines**: a project can be provisioned a SQLite, PostgreSQL, MySQL, or MongoDB database. The IDE shares one PostgreSQL, one MySQL, and one MongoDB server across all users and creates a single logical database (named `proj_<projectId>`) per project on first use, rather than running a server per user. SQLite projects get a plain `app.db` file in the workspace with no server involved. Each project receives a dedicated database role and a generated password scoped to only its own database, so projects sharing a server cannot read each other's data. `MAX_DATABASES_PER_USER` limits how many databases a user can create.
+* **Unified database viewer**: list tables (or Mongo collections), inspect schema, browse rows with pagination, and run read-only queries, with the same interface for every engine.
+* **Live preview with CRUD**: new projects are scaffolded with a runnable FastAPI and HTML CRUD app wired to the provisioned database through `DATABASE_URL`. Run `python main.py`, open the Live Preview to use it, and creating or deleting records in the UI updates the rows shown in the Database Viewer.
+
+Implementation lives in `backend/app/metadata.py` (users, projects, and their databases), `backend/app/provisioning.py` (creating and tearing down databases and roles), and `backend/app/db_inspect.py` (read-only browsing across all engines).
+
+---
+
 ## ⚙️ Tech Stack & Dependencies
 
 * **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, Radix UI Context Menu.
@@ -248,7 +260,7 @@ The Cloud IDE environment is modular and designed to easily integrate new develo
 
 ## ✅ Testing
 
-**Backend** (FastAPI / pytest) — covers files, git, database, processes, the interactive PTY terminal, and the path-security helpers:
+**Backend** (FastAPI / pytest) covers files, git, database, processes, the interactive PTY terminal, and the path-security helpers:
 ```bash
 cd backend
 python3 -m venv venv && source venv/bin/activate
@@ -256,15 +268,16 @@ pip install -r requirements-dev.txt
 pytest -q
 ```
 
-**Frontend** (Vitest) — covers utility helpers, the Zustand stores, the fuzzy file matcher, and the diff parser:
+**Frontend** (Vitest) covers utility helpers, the Zustand stores, the fuzzy file matcher, and the diff parser:
 ```bash
 cd frontend
 npm install
 npm test          # one-shot run
 npm run type-check
+npm run lint      # ESLint (strict: zero warnings allowed)
 ```
 
-CI (`.github/workflows/ci.yml`) runs ruff + pytest, the frontend type-check + Vitest, and a Docker build check on every push and PR.
+CI (`.github/workflows/ci.yml`) runs ruff + pytest, the frontend type-check + ESLint + Vitest, and a Docker build check on every push and PR.
 
 ---
 

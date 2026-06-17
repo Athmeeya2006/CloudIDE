@@ -1,8 +1,8 @@
 import asyncio
+import contextlib
 import logging
 import re
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -22,7 +22,7 @@ def resolve_git_dir(workspace: str, folder: str = "") -> Path:
     try:
         base.relative_to(settings.workspace_path.resolve())
     except ValueError:
-        raise HTTPException(403, "Access denied")
+        raise HTTPException(403, "Access denied") from None
 
     clean_folder = folder.replace('\x00', '').lstrip('/')
     if '..' in clean_folder.split('/') or '..' in workspace.replace('\x00', '').split('/'):
@@ -32,7 +32,7 @@ def resolve_git_dir(workspace: str, folder: str = "") -> Path:
     try:
         resolved.relative_to(base)
     except ValueError:
-        raise HTTPException(403, "Access denied")
+        raise HTTPException(403, "Access denied") from None
 
     if not resolved.exists():
         raise HTTPException(404, f"Directory not found: {folder}")
@@ -74,20 +74,18 @@ async def run_git(args: list[str], cwd: str, timeout: int = 60) -> dict:
             "stderr": stderr.decode(errors="replace"),
             "ok": proc.returncode == 0,
         }
-    except asyncio.TimeoutError:
-        try:
+    except TimeoutError:
+        with contextlib.suppress(Exception):
             proc.kill()
-        except Exception:
-            pass
-        raise HTTPException(408, f"Git operation timed out after {timeout}s")
+        raise HTTPException(408, f"Git operation timed out after {timeout}s") from None
     except FileNotFoundError:
-        raise HTTPException(500, "git is not installed in this environment")
+        raise HTTPException(500, "git is not installed in this environment") from None
 
 
 class CloneBody(BaseModel):
     url: str
     workspace: str = "default"
-    folder: Optional[str] = None
+    folder: str | None = None
 
 
 @router.post("/clone")
@@ -100,7 +98,7 @@ async def clone(body: CloneBody):
     try:
         base.relative_to(settings.workspace_path.resolve())
     except ValueError:
-        raise HTTPException(403, "Access denied")
+        raise HTTPException(403, "Access denied") from None
 
     clean_folder = (body.folder or "").replace('\x00', '').lstrip('/')
     if '..' in clean_folder.split('/') or '..' in body.workspace.replace('\x00', '').split('/'):
@@ -114,7 +112,7 @@ async def clone(body: CloneBody):
     try:
         dest.relative_to(base)
     except ValueError:
-        raise HTTPException(403, "Access denied")
+        raise HTTPException(403, "Access denied") from None
 
     if dest.exists():
         raise HTTPException(400, f"Folder '{folder}' already exists")

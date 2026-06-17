@@ -60,7 +60,7 @@ def safe_join(*parts: str) -> Path:
     try:
         target.relative_to(root)
     except ValueError:
-        raise HTTPException(403, "Access denied")
+        raise HTTPException(403, "Access denied") from None
     return target
 
 

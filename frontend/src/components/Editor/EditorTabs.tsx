@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { X, Circle } from 'lucide-react';
 import { useFileStore } from '../../stores/fileStore';
-import { getFileIcon, getLanguage, cn } from '../../utils';
+import { getFileIcon, cn } from '../../utils';
  
 export function EditorTabs() {
   const { openTabs, activeTabPath, setActiveTab, closeTab, saveFile } = useFileStore();

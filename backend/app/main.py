@@ -1,12 +1,14 @@
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from contextlib import asynccontextmanager
-import logging
+from fastapi.responses import JSONResponse
 
+from app import metadata
 from app.config import settings
-from app.routers import files, terminal, processes, database, git
+from app.routers import auth, database, files, git, processes, projects, terminal
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,6 +20,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"Cloud IDE backend starting. Workspace: {settings.workspace_path}")
+    metadata.init_db()
     yield
     logger.info("Shutting down.")
 
@@ -54,6 +57,8 @@ async def limit_upload_size(request: Request, call_next):
     return await call_next(request)
 
 
+app.include_router(auth.router)
+app.include_router(projects.router)
 app.include_router(files.router)
 app.include_router(terminal.router)
 app.include_router(processes.router)

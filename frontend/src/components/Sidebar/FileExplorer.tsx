@@ -8,7 +8,7 @@ import * as ContextMenu from '@radix-ui/react-context-menu';
 import { useFileStore } from '../../stores/fileStore';
 import { useUIStore } from '../../stores/uiStore';
 import { filesApi, rawFileUrl } from '../../api/client';
-import { getFileIcon, cn } from '../../utils';
+import { getFileIcon, cn, getErrorMessage } from '../../utils';
 import type { FileNode } from '../../types';
  
 export function FileExplorer() {
@@ -49,8 +49,8 @@ export function FileExplorer() {
       const res = await filesApi.upload(fd);
       await refreshTree();
       notify(`Uploaded ${res.count} file${res.count !== 1 ? 's' : ''}`, 'success');
-    } catch (e: any) {
-      notify(e.response?.data?.detail || 'Upload failed', 'error');
+    } catch (e: unknown) {
+      notify(getErrorMessage(e, 'Upload failed'), 'error');
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -72,8 +72,8 @@ export function FileExplorer() {
     try {
       await createWorkspace(name);
       notify(`Workspace "${name}" created`, 'success');
-    } catch (e: any) {
-      notify(e.response?.data?.detail || 'Failed to create workspace', 'error');
+    } catch (e: unknown) {
+      notify(getErrorMessage(e, 'Failed to create workspace'), 'error');
     }
   };
  

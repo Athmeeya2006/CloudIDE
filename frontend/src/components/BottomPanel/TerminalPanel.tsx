@@ -112,6 +112,9 @@ export function TerminalPanel() {
       ws.close();
       term.dispose();
     };
+    // Recreate the terminal + socket only when the workspace or session changes;
+    // `notify` is a stable store action read from the closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace, sessionId]);
 
   // Flush a queued "Run" command once the socket is connected. Using the store

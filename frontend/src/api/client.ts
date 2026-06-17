@@ -30,15 +30,77 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// ---- Auth token ----
+const TOKEN_KEY = 'cloud-ide-token';
+
+export function getToken(): string | null {
+  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
+}
+
+export function setToken(token: string | null) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch { /* ignore (private mode) */ }
+}
+
+// Attach the bearer token to every request.
+api.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
 api.interceptors.response.use(
   (r) => r,
   (err) => {
     if (err.code === 'ECONNABORTED') {
       err.message = 'Request timed out. Is the backend running?';
     }
+    // A 401 means the session is gone, so drop the token and let the app re-gate.
+    if (err.response?.status === 401) {
+      setToken(null);
+    }
     return Promise.reject(err);
   },
 );
+
+// ---- Auth ----
+export const authApi = {
+  register: (email: string, password: string) =>
+    api.post('/api/auth/register', { email, password }).then(r => r.data),
+  login: (email: string, password: string) =>
+    api.post('/api/auth/login', { email, password }).then(r => r.data),
+  me: () => api.get('/api/auth/me').then(r => r.data),
+};
+
+// ---- Projects ----
+export const projectApi = {
+  list: () => api.get('/api/projects/').then(r => r.data),
+  create: (name: string, engine = 'sqlite') =>
+    api.post('/api/projects/', { name, engine }).then(r => r.data),
+  get: (id: string) => api.get(`/api/projects/${id}`).then(r => r.data),
+  remove: (id: string) => api.delete(`/api/projects/${id}`).then(r => r.data),
+  engines: () => api.get('/api/projects/engines').then(r => r.data),
+  databases: (id: string) =>
+    api.get(`/api/projects/${id}/databases`).then(r => r.data),
+  addDatabase: (id: string, engine: string) =>
+    api.post(`/api/projects/${id}/databases`, { engine }).then(r => r.data),
+};
+
+// ---- Provisioned (engine-aware) database viewer ----
+export const engineDbApi = {
+  info: (dbId: number) =>
+    api.get(`/api/database/engine/${dbId}/info`).then(r => r.data),
+  tables: (dbId: number) =>
+    api.get(`/api/database/engine/${dbId}/tables`).then(r => r.data),
+  schema: (dbId: number, table: string) =>
+    api.get(`/api/database/engine/${dbId}/schema`, { params: { table } }).then(r => r.data),
+  rows: (dbId: number, table: string, limit = 100, offset = 0) =>
+    api.get(`/api/database/engine/${dbId}/rows`, { params: { table, limit, offset } }).then(r => r.data),
+  query: (dbId: number, sql: string) =>
+    api.post(`/api/database/engine/${dbId}/query`, { sql }).then(r => r.data),
+};
 
 // ---- Files ----
 export const filesApi = {

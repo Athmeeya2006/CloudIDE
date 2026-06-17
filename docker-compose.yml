@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   backend:
     build: ./backend
@@ -13,9 +11,41 @@ services:
       - WORKSPACE_BASE=/workspaces
       - ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost:80
       - PORT=8000
+      # Auth secret (override in production so tokens survive restarts).
+      - AUTH_SECRET=${AUTH_SECRET:-dev-insecure-change-me}
+      # ---- Shared database servers (the "smart" multi-tenant design) ----
+      # ONE server per engine, shared by ALL users. Per-project *logical*
+      # databases + scoped roles are created lazily inside these. See
+      # backend/app/provisioning.py.
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_ADMIN_USER=ide_admin
+      - PG_ADMIN_PASSWORD=ide_admin_pw
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_ADMIN_USER=root
+      - MYSQL_ADMIN_PASSWORD=ide_admin_pw
+      - MONGO_HOST=mongo
+      - MONGO_PORT=27017
+      - MONGO_ADMIN_USER=ide_admin
+      - MONGO_ADMIN_PASSWORD=ide_admin_pw
+      - MAX_DATABASES_PER_USER=20
     env_file:
       - backend/.env
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - ide-net
 
@@ -31,13 +61,73 @@ services:
     ports:
       - "3000:80"
     depends_on:
-      - backend
+      # Wait until the backend reports healthy so the first request can't race
+      # the API coming up.
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+    networks:
+      - ide-net
+
+  # ----------------------------------------------------------------------
+  # Shared database servers. THREE servers total — not one per user. Every
+  # user's per-project databases are logical databases/schemas created inside
+  # these (see provisioning.py). This is how 1000 users x 10 dbs = 10,000
+  # databases is served by a handful of processes.
+  # ----------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: cloud-ide-postgres
+    environment:
+      - POSTGRES_USER=ide_admin
+      - POSTGRES_PASSWORD=ide_admin_pw
+      - POSTGRES_DB=postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ide_admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ide-net
+
+  mysql:
+    image: mysql:8.0
+    container_name: cloud-ide-mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=ide_admin_pw
+    volumes:
+      - mysqldata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pide_admin_pw"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ide-net
+
+  mongo:
+    image: mongo:7
+    container_name: cloud-ide-mongo
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=ide_admin
+      - MONGO_INITDB_ROOT_PASSWORD=ide_admin_pw
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - ide-net
 
 volumes:
   workspaces:
+  pgdata:
+  mysqldata:
+  mongodata:
 
 networks:
   ide-net:

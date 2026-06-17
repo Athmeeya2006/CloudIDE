@@ -6,3 +6,8 @@ aiofiles>=23.2.1
 python-dotenv>=1.0.1
 pydantic>=2.7.0
 pydantic-settings>=2.3.0
+# Shared-server database drivers (imported lazily; only needed when the
+# corresponding engine is provisioned for a project).
+psycopg2-binary>=2.9.9
+PyMySQL>=1.1.0
+pymongo>=4.7.0

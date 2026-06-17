@@ -3,7 +3,7 @@ import { Search, CaseSensitive, Loader2, X, ChevronDown, ChevronRight } from 'lu
 import { filesApi } from '../../api/client';
 import { useFileStore } from '../../stores/fileStore';
 import { useUIStore } from '../../stores/uiStore';
-import { getFileIcon, cn } from '../../utils';
+import { getFileIcon, cn, getErrorMessage } from '../../utils';
 import type { GrepResult } from '../../types';
  
 type SearchMode = 'filename' | 'content';
@@ -79,8 +79,8 @@ export function SearchPanel() {
         const data = await filesApi.search(q, workspace);
         setResults(data.results ?? []);
       }
-    } catch (e: any) {
-      notify(e.response?.data?.detail || 'Search failed', 'error');
+    } catch (e: unknown) {
+      notify(getErrorMessage(e, 'Search failed'), 'error');
     } finally {
       setLoading(false);
     }

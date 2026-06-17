@@ -4,6 +4,7 @@ import { GitBranch, X, Loader2 } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
 import { useFileStore } from '../../stores/fileStore';
 import { gitApi } from '../../api/client';
+import { getErrorMessage } from '../../utils';
 
 export function CloneDialog() {
   const { cloneDialogOpen, closeCloneDialog, notify } = useUIStore();
@@ -22,8 +23,8 @@ export function CloneDialog() {
       closeCloneDialog();
       setUrl('');
       setFolder('');
-    } catch (e: any) {
-      notify(e.response?.data?.detail || e.message || 'Clone failed', 'error');
+    } catch (e: unknown) {
+      notify(getErrorMessage(e, 'Clone failed'), 'error');
     } finally {
       setLoading(false);
     }

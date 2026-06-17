@@ -117,13 +117,18 @@ async def read_file(path: str):
                 "error": "File too large to display (over 5 MB)",
             }
     except OSError:
-        raise HTTPException(404, "File not found")
+        raise HTTPException(404, "File not found") from None
     try:
-        async with aiofiles.open(full, "r", encoding="utf-8") as f:
+        async with aiofiles.open(full, encoding="utf-8") as f:
             content = await f.read()
         return {"path": path, "content": content, "encoding": "utf-8"}
     except UnicodeDecodeError:
-        return {"path": path, "content": "", "encoding": "binary", "error": "Binary file: cannot display"}
+        return {
+            "path": path,
+            "content": "",
+            "encoding": "binary",
+            "error": "Binary file: cannot display",
+        }
 
 
 @router.get("/raw/{full_path:path}")
@@ -171,7 +176,7 @@ async def upload_files(
         try:
             target.relative_to(base_resolved)
         except ValueError:
-            raise HTTPException(403, "Access denied")
+            raise HTTPException(403, "Access denied") from None
         if target.is_dir():
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -315,7 +320,7 @@ async def grep_files(
                 continue
 
             try:
-                with open(full, 'r', encoding='utf-8', errors='replace') as f:
+                with open(full, encoding='utf-8', errors='replace') as f:
                     for line_num, line in enumerate(f, 1):
                         check = line if case_sensitive else line.lower()
                         if search_q in check:

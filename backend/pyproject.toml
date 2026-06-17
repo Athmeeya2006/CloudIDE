@@ -1,0 +1,25 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["venv", ".venv"]
+
+[tool.ruff.lint]
+# A pragmatic-but-strong rule set: pycodestyle/pyflakes (E/F/W), import sorting
+# (I), modern-Python upgrades (UP), bug patterns (B), comprehensions (C4) and
+# simplifications (SIM).
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = [
+    # FastAPI relies on callables in argument defaults (File(...), Form(...),
+    # Query(...), Depends(...)); that pattern is intentional, not a bug.
+    "B008",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests favour readability over line-length and may shadow builtins in fixtures.
+"tests/*" = ["E501"]
+# scaffold.py embeds HTML/Python starter templates as string literals where
+# wrapping lines would corrupt the generated files.
+"app/scaffold.py" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]

@@ -147,3 +147,18 @@ export function formatRelativeTime(dateStr: string): string {
   if (diff < 2592000)     return `${Math.floor(diff / 86400)}d ago`;
   return date.toLocaleDateString();
 }
+
+/** Extract a human-readable message from an unknown thrown value. Understands
+ *  Axios-style errors (`response.data.detail`), native `Error`s, and strings,
+ *  falling back to a caller-supplied default. Keeps `catch` blocks type-safe
+ *  without resorting to `any`. */
+export function getErrorMessage(e: unknown, fallback = 'Something went wrong'): string {
+  if (typeof e === 'string') return e || fallback;
+  if (e && typeof e === 'object') {
+    const err = e as { response?: { data?: { detail?: unknown } }; message?: unknown };
+    const detail = err.response?.data?.detail;
+    if (typeof detail === 'string' && detail) return detail;
+    if (typeof err.message === 'string' && err.message) return err.message;
+  }
+  return fallback;
+}

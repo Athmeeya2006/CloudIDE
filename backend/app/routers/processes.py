@@ -1,13 +1,15 @@
 import asyncio
-import os
-import subprocess
-import signal
-import uuid
+import contextlib
 import logging
+import os
+import signal
+import subprocess
+import uuid
 from pathlib import Path
-from typing import Dict, List, Optional
+
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, field_validator
+
 from app.config import settings
 
 router = APIRouter(prefix="/api/processes", tags=["processes"])
@@ -25,15 +27,15 @@ def resolve_workspace_cwd(cwd_param: str) -> Path:
     try:
         resolved.relative_to(base)
     except ValueError:
-        raise HTTPException(403, "Access denied")
+        raise HTTPException(403, "Access denied") from None
     return resolved
 
 
 class ProcessCreate(BaseModel):
     command: str
     cwd: str
-    name: Optional[str] = None
-    env: Optional[Dict[str, str]] = None
+    name: str | None = None
+    env: dict[str, str] | None = None
 
     @field_validator('command')
     @classmethod
@@ -57,13 +59,13 @@ class ManagedProcess:
         self.command = command
         self.name = name
         self.cwd = cwd
-        self.proc: Optional[subprocess.Popen] = None
+        self.proc: subprocess.Popen | None = None
         self.status: str = "stopped"
-        self.logs: List[str] = []
-        self._queues: List[asyncio.Queue] = []
-        self._task: Optional[asyncio.Task] = None
+        self.logs: list[str] = []
+        self._queues: list[asyncio.Queue] = []
+        self._task: asyncio.Task | None = None
 
-    async def start(self, env: Optional[Dict] = None):
+    async def start(self, env: dict | None = None):
         penv = {**os.environ}
         if env:
             penv.update(env)
@@ -94,33 +96,25 @@ class ManagedProcess:
                 if len(self.logs) > 5000:
                     self.logs = self.logs[-4000:]
                 for q in list(self._queues):
-                    try:
+                    with contextlib.suppress(asyncio.QueueFull):
                         q.put_nowait(line)
-                    except asyncio.QueueFull:
-                        pass
             else:
                 break
 
         rc = -1
         if self.proc:
-            try:
+            with contextlib.suppress(Exception):
                 rc = self.proc.wait()
-            except Exception:
-                pass
         exit_msg = f"\n[Process exited with code {rc}]\n"
         self.logs.append(exit_msg)
         for q in list(self._queues):
-            try:
+            with contextlib.suppress(Exception):
                 q.put_nowait(exit_msg)
-            except Exception:
-                pass
 
         self.status = "stopped" if rc == 0 else "error"
         for q in list(self._queues):
-            try:
+            with contextlib.suppress(Exception):
                 q.put_nowait(None)
-            except Exception:
-                pass
 
     def subscribe(self) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue(maxsize=2000)
@@ -128,10 +122,8 @@ class ManagedProcess:
         return q
 
     def unsubscribe(self, q: asyncio.Queue):
-        try:
+        with contextlib.suppress(ValueError):
             self._queues.remove(q)
-        except ValueError:
-            pass
 
     def stop(self):
         if self.proc and self.proc.poll() is None:
@@ -139,10 +131,8 @@ class ManagedProcess:
                 os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)
                 self.proc.wait(timeout=1.0)
             except Exception:
-                try:
+                with contextlib.suppress(Exception):
                     os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
-                except Exception:
-                    pass
         if self._task and not self._task.done():
             self._task.cancel()
         self.status = "stopped"
@@ -160,7 +150,7 @@ class ManagedProcess:
 
 class ProcessManager:
     def __init__(self):
-        self._procs: Dict[str, ManagedProcess] = {}
+        self._procs: dict[str, ManagedProcess] = {}
 
     def create(self, cmd: str, name: str, cwd: str) -> ManagedProcess:
         # Remove dead processes first
@@ -170,13 +160,13 @@ class ProcessManager:
 
         if len(self._procs) >= settings.max_processes:
             raise HTTPException(429, f"Max processes ({settings.max_processes}) reached")
-        
+
         pid = str(uuid.uuid4())[:8]
         p = ManagedProcess(pid, cmd, name, cwd)
         self._procs[pid] = p
         return p
 
-    def get(self, pid: str) -> Optional[ManagedProcess]:
+    def get(self, pid: str) -> ManagedProcess | None:
         return self._procs.get(pid)
 
     def list_all(self) -> list:
@@ -259,7 +249,7 @@ async def process_logs_ws(websocket: WebSocket, pid: str):
         while True:
             try:
                 line = await asyncio.wait_for(q.get(), timeout=30)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 try:
                     await websocket.send_text("\x00")  # keepalive
                 except Exception:

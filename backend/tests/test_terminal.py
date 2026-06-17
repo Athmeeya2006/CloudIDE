@@ -51,9 +51,11 @@ def test_terminal_ws_run_button_pattern(tmp_path):
 def test_terminal_ws_rejects_bad_cwd():
     disconnected = False
     try:
-        with TestClient(app) as c:
-            with c.websocket_connect("/api/terminal/ws/bad?cwd=../../etc") as ws:
-                ws.receive_bytes()
+        with (
+            TestClient(app) as c,
+            c.websocket_connect("/api/terminal/ws/bad?cwd=../../etc") as ws,
+        ):
+            ws.receive_bytes()
     except WebSocketDisconnect as e:
         disconnected = True
         assert e.code == 4003

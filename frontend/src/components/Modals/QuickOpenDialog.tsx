@@ -38,7 +38,6 @@ export function scoreMatch(file: FileNode, pattern: string): number {
   let score = 0;
   let pi = 0;
   let consecutive = 0;
-  let lastMatchIdx = -1;
   for (let si = 0; si < name.length && pi < p.length; si++) {
     if (name[si] === p[pi]) {
       consecutive++;
@@ -47,7 +46,6 @@ export function scoreMatch(file: FileNode, pattern: string): number {
       if (si === 0 || name[si - 1] === '/' || name[si - 1] === '.' || name[si - 1] === '-' || name[si - 1] === '_') {
         score += 10;
       }
-      lastMatchIdx = si;
       pi++;
     } else {
       consecutive = 0;

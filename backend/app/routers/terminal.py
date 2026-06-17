@@ -1,16 +1,17 @@
 import asyncio
+import contextlib
+import fcntl
+import json
+import logging
 import os
 import pty
 import select
-import struct
-import fcntl
-import termios
-import subprocess
-import json
-import logging
 import shutil
-from typing import Dict
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+import struct
+import subprocess
+import termios
+
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from app.routers.processes import resolve_workspace_cwd
 
@@ -61,21 +62,17 @@ class TerminalSession:
 
     def resize(self, rows: int, cols: int):
         if self.master_fd is not None:
-            try:
+            with contextlib.suppress(OSError):
                 fcntl.ioctl(
                     self.master_fd,
                     termios.TIOCSWINSZ,
                     struct.pack("HHHH", rows, cols, 0, 0),
                 )
-            except OSError:
-                pass
 
     def write(self, data: bytes):
         if self.master_fd is not None:
-            try:
+            with contextlib.suppress(OSError):
                 os.write(self.master_fd, data)
-            except OSError:
-                pass
 
     def close(self):
         if self.process:
@@ -83,21 +80,17 @@ class TerminalSession:
                 self.process.terminate()
                 self.process.wait(timeout=2)
             except Exception:
-                try:
+                with contextlib.suppress(Exception):
                     self.process.kill()
-                except Exception:
-                    pass
         if self.master_fd is not None:
-            try:
+            with contextlib.suppress(OSError):
                 os.close(self.master_fd)
-            except OSError:
-                pass
             self.master_fd = None
 
 
 class TerminalManager:
     def __init__(self):
-        self._sessions: Dict[str, TerminalSession] = {}
+        self._sessions: dict[str, TerminalSession] = {}
 
     def create(self, session_id: str, cwd: str) -> TerminalSession:
         if session_id in self._sessions:
