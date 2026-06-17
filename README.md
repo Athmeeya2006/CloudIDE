@@ -82,8 +82,6 @@ graph TD
 * **Unified database viewer**: list tables (or Mongo collections), inspect schema, browse rows with pagination, and run read-only queries, with the same interface for every engine.
 * **Live preview with CRUD**: run your app, open it in the Live Preview, and creating or deleting records through its UI updates the rows shown in the Database Viewer. The provisioned database connection string is available to your app through `DATABASE_URL`.
 
-> **Ports and preview:** the IDE backend uses port `8000` and the IDE frontend uses `3000`, so do not run your own apps on those. Bind your app to `0.0.0.0`. The Live Preview reaches your app through a backend proxy (`/api/preview/<port>/`), so it works even when the IDE runs on a different machine than your browser, and it auto-detects whichever port your app is on. Single-page apps must serve their assets under that base path; **Run Dev sets this automatically** for detected Vite / CRA / Next apps (Vite `--base`, CRA `PUBLIC_URL`). If you start a frontend by hand, pass the same base (for example `vite --base /api/preview/5173/`). WebSockets are not proxied, so dev-server hot reload does not push updates; use the reload button.
-
 Implementation lives in `backend/app/metadata.py` (users, projects, and their databases), `backend/app/provisioning.py` (creating and tearing down databases and roles), and `backend/app/db_inspect.py` (read-only browsing across all engines).
 
 ---
@@ -302,28 +300,6 @@ Key point for previews in a split deployment: user apps run inside the **backend
 container and are never exposed as public ports. The browser reaches them only
 through the backend proxy at `VITE_API_URL` + `/api/preview/<port>/`. There is
 nothing to expose per port, and the app can listen on any port.
-
----
-
-## 🩺 Troubleshooting
-
-* **Preview says "Nothing is running on port N".** That page is served by the
-  backend proxy, so the request reached the backend fine; nothing is listening
-  on that port yet. Check the **Processes** panel: if it still shows `npm install`
-  or a build, just wait; if you see `Killed`, it ran out of memory.
-* **The dev server gets OOM-killed (Render "memory limit exceeded").** The app is
-  too heavy for the instance (CRA/webpack is the usual culprit). Low-memory mode
-  builds and serves instead; prefer Vite over CRA, or use a larger instance.
-* **The app is on a different port than the preview opened.** The preview scans
-  the host's listening sockets and switches to your app automatically; or click
-  the radar (detect) button, or type the port in the address bar.
-* **`npm warn ERESOLVE` / peer dependency conflicts.** These are warnings, not
-  errors; the install continues. Auto-detected installs already pass
-  `--legacy-peer-deps`.
-* **Login/terminal/preview fail on a split deployment.** `VITE_API_URL` is not
-  pointing at the backend, so requests hit the frontend origin. Set it on the
-  frontend host and make sure the backend's `ALLOWED_ORIGINS` includes the
-  frontend URL.
 
 ---
 
