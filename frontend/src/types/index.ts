@@ -99,5 +99,13 @@ export interface AuthUser {
   email: string;
 }
 
+export interface RunService {
+  name: string;
+  command: string;
+  cwd: string;
+  run_cwd: string;
+  port?: number | null;
+}
+
 export type SidebarView = 'explorer' | 'search' | 'git' | 'database';
 export type BottomView = 'terminal' | 'logs' | 'db-viewer' | 'problems';

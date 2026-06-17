@@ -74,6 +74,85 @@ Implementation lives in `backend/app/metadata.py` (users, projects, and their da
 
 ---
 
+## 🧩 Running Projects (single scripts and full-stack apps)
+
+**You never type `cd` by hand.** Every terminal opens inside the current project's
+folder, so you can run commands directly. The green **Run** button adds the
+`cd` itself, only so it also works when the active file lives in a subfolder.
+
+### A single file
+Open the file and press **Run** (or F5), or just type the command in the
+terminal, for example `python main.py` or `node index.js`.
+
+### A backend server
+A server is a long-running process, so start it in a terminal and leave it
+running. Bind to `0.0.0.0` and use a port other than `8000`/`3000`.
+
+```bash
+# FastAPI (fastapi/uvicorn are pre-installed in the IDE image)
+uvicorn main:app --host 0.0.0.0 --port 5000 --reload
+
+# Flask
+flask run --host 0.0.0.0 --port 5000
+
+# Node/Express
+node server.js        # make the app listen on 0.0.0.0:5000
+```
+
+### A frontend dev server
+Open a **second terminal** (use the `+` in the terminal panel) so the backend
+keeps running, then start the frontend with an explicit host and port.
+
+```bash
+npm install
+npm run dev -- --host --port 5173      # Vite/React
+# Create React App: HOST=0.0.0.0 PORT=5173 npm start
+```
+
+If your repo has `frontend/` and `backend/` subfolders, `cd frontend` /
+`cd backend` first. You are already at the project root in each terminal.
+
+### One click: the Run Dev button
+The title bar has a **Run Dev** button that starts every service for the project
+at once, opens the Processes panel, and points the Preview at the first service
+that exposes a port. The dropdown next to it lists the services and lets you
+start them individually.
+
+It decides what to run in one of two ways:
+
+* **`cloudide.json`** at the project root (authoritative). Define your services:
+  ```json
+  {
+    "services": [
+      { "name": "backend",  "command": "uvicorn main:app --host 0.0.0.0 --port 5000 --reload", "cwd": "backend",  "port": 5000 },
+      { "name": "frontend", "command": "npm run dev -- --host --port 5173",                      "cwd": "frontend", "port": 5173 }
+    ]
+  }
+  ```
+  `cwd` is relative to the project root, and `port` is the port the Preview opens.
+* **Auto-detection** when there is no config. The IDE scans the project root and
+  its immediate subfolders for `package.json` (runs `npm run dev`/`npm start`),
+  `manage.py` (Django), and `main.py`/`app.py` (FastAPI via uvicorn, Flask, or a
+  plain script), assigning non-conflicting ports.
+
+### Full-stack, end to end (manual)
+1. Terminal 1: start the backend on `0.0.0.0:5000`.
+2. Terminal 2: start the frontend on `0.0.0.0:5173`.
+3. Point your frontend's API calls at the backend (for example
+   `http://localhost:5000`) and enable CORS for it in the backend.
+4. Open the **Preview** panel and select port `5173` (or type the URL). The
+   address bar always shows the exact host being previewed.
+5. Edits reload in the preview: backends with `--reload` and Vite's HMR refresh
+   automatically; otherwise click reload in the preview toolbar.
+
+You can also run servers from the **Processes** panel instead of a terminal,
+which gives each one a start/stop/restart control and a streamed log view.
+
+> Reminder: ports `8000` (IDE backend) and `3000` (IDE frontend) are taken. Use
+> `5173`, `5000`, `5001`-`5010`, or `8080`, and bind to `0.0.0.0`.
+
+---
+
 ## ⚙️ Tech Stack & Dependencies
 
 * **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, Radix UI Context Menu.

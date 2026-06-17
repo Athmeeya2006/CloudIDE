@@ -1,0 +1,171 @@
+"""Project run configuration for the one-click "Run dev servers" action.
+
+A project may include a ``cloudide.json`` at its workspace root that lists the
+services to start:
+
+    {
+      "services": [
+        {
+          "name": "backend",
+          "command": "uvicorn main:app --host 0.0.0.0 --port 5000 --reload",
+          "cwd": "backend",
+          "port": 5000
+        },
+        {
+          "name": "frontend",
+          "command": "npm run dev -- --host --port 5173",
+          "cwd": "frontend",
+          "port": 5173
+        }
+      ]
+    }
+
+When that file is absent, ``detect_services`` inspects the workspace root and its
+immediate subdirectories for common project markers (``package.json``,
+``manage.py``, ``main.py``/``app.py``) and proposes sensible commands. The
+config, when present, always wins.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from app.security import SKIP_DIRS, safe_join
+
+CONFIG_NAME = "cloudide.json"
+
+# Ports we hand out to detected services. We avoid 8000 (IDE backend) and 3000
+# (IDE frontend) on purpose.
+_FRONTEND_PORT = 5173
+_BACKEND_PORTS = [5000, 5001, 5002, 5003]
+
+
+def get_services(workspace: str) -> dict:
+    """Return the services to run for a project, with their source."""
+    configured = _read_config(workspace)
+    if configured is not None:
+        return {"services": configured, "source": "config"}
+    return {"services": detect_services(workspace), "source": "detected"}
+
+
+def _read_config(workspace: str) -> list[dict] | None:
+    path = safe_join(workspace, CONFIG_NAME)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    raw = data.get("services") if isinstance(data, dict) else None
+    if not isinstance(raw, list):
+        return None
+    services = []
+    for s in raw:
+        if not isinstance(s, dict) or not str(s.get("command", "")).strip():
+            continue
+        services.append({
+            "name": str(s.get("name") or "service"),
+            "command": str(s["command"]).strip(),
+            "cwd": str(s.get("cwd") or "").strip("/"),
+            "port": s.get("port") if isinstance(s.get("port"), int) else None,
+        })
+    return services or None
+
+
+def detect_services(workspace: str) -> list[dict]:
+    root = safe_join(workspace)
+    if not root.is_dir():
+        return []
+
+    # The workspace root plus its immediate, meaningful subdirectories.
+    search_dirs = [(root, "")]
+    try:
+        for child in sorted(root.iterdir()):
+            if child.is_dir() and child.name not in SKIP_DIRS and not child.name.startswith("."):
+                search_dirs.append((child, child.name))
+    except OSError:
+        pass
+
+    services: list[dict] = []
+    backend_idx = 0
+    for directory, rel in search_dirs:
+        for svc in _detect_in_dir(directory, rel):
+            if svc["kind"] == "backend":
+                svc["port"] = _BACKEND_PORTS[min(backend_idx, len(_BACKEND_PORTS) - 1)]
+                svc["command"] = svc["command"].format(port=svc["port"])
+                backend_idx += 1
+            svc.pop("kind", None)
+            services.append(svc)
+    return services
+
+
+def _detect_in_dir(d: Path, rel: str) -> list[dict]:
+    out: list[dict] = []
+    label = rel or "app"
+
+    pkg = d / "package.json"
+    if pkg.is_file():
+        cmd = _node_command(pkg)
+        if cmd:
+            out.append({
+                "name": rel or "frontend",
+                "command": cmd,
+                "cwd": rel,
+                "port": _FRONTEND_PORT,
+                "kind": "frontend",
+            })
+
+    if (d / "manage.py").is_file():
+        out.append({
+            "name": f"{label}-django",
+            "command": "python manage.py runserver 0.0.0.0:{port}",
+            "cwd": rel,
+            "kind": "backend",
+        })
+    else:
+        for fname, module in (("main.py", "main"), ("app.py", "app")):
+            if (d / fname).is_file():
+                command, kind = _python_command(d / fname, module)
+                out.append({
+                    "name": rel or "backend",
+                    "command": command,
+                    "cwd": rel,
+                    "kind": kind,
+                    "port": None,
+                })
+                break
+
+    return out
+
+
+def _node_command(pkg: Path) -> str | None:
+    try:
+        scripts = json.loads(pkg.read_text(encoding="utf-8")).get("scripts", {})
+    except (ValueError, OSError):
+        scripts = {}
+    if "dev" in scripts:
+        run = "npm run dev"
+    elif "start" in scripts:
+        run = "npm start"
+    else:
+        return None
+    # Install first if dependencies aren't present yet.
+    prefix = "" if (pkg.parent / "node_modules").is_dir() else "npm install && "
+    return f"{prefix}{run}"
+
+
+def _python_command(entry: Path, module: str) -> tuple[str, str]:
+    """Choose uvicorn / flask / plain python based on the file's contents.
+
+    Returns ``(command, kind)`` where kind is ``backend`` for servers (which get
+    a port assigned) or ``script`` for plain programs (which do not).
+    """
+    try:
+        text = entry.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+    if "FastAPI(" in text or "from fastapi" in text:
+        return f"uvicorn {module}:app --host 0.0.0.0 --port {{port}} --reload", "backend"
+    if "Flask(" in text or "from flask" in text:
+        return f"flask --app {module} run --host 0.0.0.0 --port {{port}}", "backend"
+    return f"python -u {entry.name}", "script"

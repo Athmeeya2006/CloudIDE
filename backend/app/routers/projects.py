@@ -12,7 +12,7 @@ import re
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app import metadata, provisioning
+from app import metadata, provisioning, runner
 from app.auth import CurrentUser
 from app.security import safe_join
 
@@ -106,6 +106,22 @@ async def list_project_databases(project_id: str, user: dict = CurrentUser):
             {**db, "connection": provisioning.connection_info(db, project)} for db in dbs
         ]
     }
+
+
+@router.get("/{project_id}/services")
+async def project_services(project_id: str, user: dict = CurrentUser):
+    """Services to launch for the one-click 'Run dev servers' action.
+
+    Reads ``cloudide.json`` from the project, or auto-detects common layouts.
+    """
+    project = _owned_project(project_id, user)
+    result = runner.get_services(project["workspace"])
+    # Return cwd resolved to a workspace-relative path the processes router
+    # accepts (it is relative to the workspace root, not the project subfolder).
+    for svc in result["services"]:
+        sub = svc.get("cwd") or ""
+        svc["run_cwd"] = f"{project['workspace']}/{sub}".rstrip("/")
+    return result
 
 
 @router.delete("/{project_id}")

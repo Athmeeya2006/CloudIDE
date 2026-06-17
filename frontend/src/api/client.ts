@@ -82,6 +82,8 @@ export const projectApi = {
   get: (id: string) => api.get(`/api/projects/${id}`).then(r => r.data),
   remove: (id: string) => api.delete(`/api/projects/${id}`).then(r => r.data),
   engines: () => api.get('/api/projects/engines').then(r => r.data),
+  services: (id: string) =>
+    api.get(`/api/projects/${id}/services`).then(r => r.data),
   databases: (id: string) =>
     api.get(`/api/projects/${id}/databases`).then(r => r.data),
   addDatabase: (id: string, engine: string) =>

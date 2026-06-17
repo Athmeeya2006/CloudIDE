@@ -19,6 +19,7 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoginScreen } from './components/Auth/LoginScreen';
 import { ProjectPicker } from './components/Auth/ProjectPicker';
+import { RunDevButton } from './components/RunDevButton';
 
 export default function App() {
   const { refreshTree, saveActiveFile } = useFileStore();
@@ -108,6 +109,9 @@ export default function App() {
           </button>
         </div>
         <div className="flex items-center gap-1 text-[11px] text-ide-text-muted">
+          <div className="mr-1 text-[11px]">
+            <RunDevButton />
+          </div>
           <button
             onClick={() => { openBottom('terminal'); }}
             className="hover:text-ide-text transition-colors px-2 py-1 hover:bg-ide-hover rounded"
