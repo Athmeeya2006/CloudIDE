@@ -119,7 +119,7 @@ export function TerminalPanel() {
 
   // Flush a queued "Run" command once the socket is connected. Using the store
   // (instead of a fire-and-forget window event) means the command is never lost
-  // to a panel-open / socket-connect race — it runs as soon as we're ready.
+  // to a panel-open / socket-connect race; it runs as soon as we're ready.
   useEffect(() => {
     if (!pendingRun || !connected) return;
     const ws = wsRef.current;

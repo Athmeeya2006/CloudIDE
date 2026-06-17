@@ -12,7 +12,7 @@ import re
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app import metadata, provisioning, scaffold
+from app import metadata, provisioning
 from app.auth import CurrentUser
 from app.security import safe_join
 
@@ -61,8 +61,6 @@ async def create_project(body: CreateProject, user: dict = CurrentUser):
     db = None
     if body.engine and body.engine != "none":
         db = provisioning.provision(project, body.engine)
-    # Drop in a runnable CRUD starter so the live-preview demo works immediately.
-    scaffold.scaffold_project(project, db)
     project["databases"] = metadata.list_databases_for_project(project["id"])
     return {"project": project, "database": db}
 

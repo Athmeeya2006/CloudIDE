@@ -19,8 +19,8 @@ class Settings(BaseSettings):
 
         Resolves ``workspace_base`` and ensures it exists. If that location
         cannot be created (e.g. a read-only ``/workspaces`` mount), falls back
-        to ``<repo>/workspaces``. The common case — the directory already
-        exists — short-circuits with a single ``stat``, so this stays cheap to
+        to ``<repo>/workspaces``. The common case, where the directory already
+        exists, short-circuits with a single ``stat``, so this stays cheap to
         call on every request that needs the root.
         """
         p = Path(self.workspace_base)

@@ -17,9 +17,6 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests favour readability over line-length and may shadow builtins in fixtures.
 "tests/*" = ["E501"]
-# scaffold.py embeds HTML/Python starter templates as string literals where
-# wrapping lines would corrupt the generated files.
-"app/scaffold.py" = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]

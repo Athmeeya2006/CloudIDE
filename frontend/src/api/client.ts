@@ -17,7 +17,7 @@ function getWsBase(): string {
 export const WS_BASE = getWsBase();
 const BASE = import.meta.env.VITE_API_URL || '';
 
-/** Absolute (or same-origin) URL that serves a workspace file verbatim — used
+/** Absolute (or same-origin) URL that serves a workspace file verbatim, used
  *  to preview static HTML/CSS/JS straight from the workspace. */
 export function rawFileUrl(path: string): string {
   const encoded = path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
@@ -185,6 +185,9 @@ export const dbApi = {
 
 // ---- Git ----
 export const gitApi = {
+  init: (workspace = 'default', folder?: string) =>
+    api.post('/api/git/init', { workspace, folder }).then(r => r.data),
+
   clone: (url: string, workspace = 'default', folder?: string) =>
     api.post('/api/git/clone', { url, workspace, folder }).then(r => r.data),
 

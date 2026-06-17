@@ -124,6 +124,39 @@ async def clone(body: CloneBody):
     return {"status": "cloned", "path": str(dest.relative_to(settings.workspace_path))}
 
 
+class InitBody(BaseModel):
+    workspace: str = "default"
+    folder: str | None = None
+
+
+@router.post("/init")
+async def git_init(body: InitBody):
+    base = (settings.workspace_path / body.workspace.replace('\x00', '')).resolve()
+    try:
+        base.relative_to(settings.workspace_path.resolve())
+    except ValueError:
+        raise HTTPException(403, "Access denied") from None
+
+    clean_folder = (body.folder or "").replace('\x00', '').lstrip('/')
+    if '..' in clean_folder.split('/') or '..' in body.workspace.replace('\x00', '').split('/'):
+        raise HTTPException(403, "Access denied")
+
+    target = (base / clean_folder).resolve()
+    try:
+        target.relative_to(base)
+    except ValueError:
+        raise HTTPException(403, "Access denied") from None
+
+    target.mkdir(parents=True, exist_ok=True)
+    if (target / ".git").exists():
+        raise HTTPException(400, "This folder is already a git repository")
+
+    result = await run_git(["init"], str(target))
+    if not result["ok"]:
+        raise HTTPException(400, result["stderr"])
+    return {"status": "initialized", "path": str(target.relative_to(settings.workspace_path))}
+
+
 @router.get("/status")
 async def git_status(workspace: str = "default", folder: str = ""):
     cwd = str(resolve_git_dir(workspace, folder))

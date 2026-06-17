@@ -4,12 +4,14 @@ import { useUIStore } from '../../stores/uiStore';
 import { useProcessStore } from '../../stores/processStore';
 import { rawFileUrl } from '../../api/client';
 
-const DEFAULT_PORTS = [8000, 3000, 5000, 4000];
+// Ports a user's app might serve on. 8000 is intentionally excluded: it is the
+// IDE's own backend API and cannot be reused by user apps.
+const DEFAULT_PORTS = [5173, 5000, 8080, 5001];
 const PORT_LABELS: Record<number, string> = {
-  8000: 'API Backend',
-  3000: 'Node/React',
-  5000: 'Flask',
-  4000: 'Dev',
+  5173: 'Vite/React',
+  5000: 'Flask/FastAPI',
+  8080: 'Web server',
+  5001: 'App',
 };
 
 export function PreviewPanel() {
@@ -21,9 +23,9 @@ export function PreviewPanel() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const runningProcess = processes.find(p => p.status === 'running');
-  // Default to the port the starter app (main.py) serves on; the address bar
-  // always shows the exact host being previewed, and the port buttons switch it.
-  const activeUrl = previewUrl || (runningProcess ? `http://localhost:8000` : '');
+  // The address bar always shows the exact host being previewed; the port
+  // buttons switch it. Default to :5173 (common dev port), never 8000 (the IDE).
+  const activeUrl = previewUrl || (runningProcess ? `http://localhost:5173` : '');
 
   const reload = () => {
     setError(false);
@@ -125,7 +127,7 @@ function NoPreview({ onOpen }: { onOpen: (url: string) => void }) {
         <div className="text-[12px]">Start your server first, then preview it here</div>
       </div>
       <div className="flex flex-col gap-1.5 w-48">
-        {[8000, 3000, 5000].map(port => (
+        {[5173, 5000, 8080].map(port => (
           <button
             key={port}
             onClick={() => onOpen(`http://localhost:${port}`)}

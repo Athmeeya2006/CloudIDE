@@ -3,7 +3,13 @@ services:
     build: ./backend
     container_name: cloud-ide-backend
     ports:
+      # 8000 is the IDE's own API. User apps run inside this container, so we
+      # publish a range of ports for them. Run your apps on any of these (NOT
+      # 8000) and bind to 0.0.0.0 so the Live Preview can reach them.
       - "8000:8000"
+      - "5000-5010:5000-5010"
+      - "5173:5173"
+      - "8080:8080"
     volumes:
       - ./backend:/app
       - workspaces:/workspaces
@@ -70,7 +76,7 @@ services:
       - ide-net
 
   # ----------------------------------------------------------------------
-  # Shared database servers. THREE servers total — not one per user. Every
+  # Shared database servers. Three servers total, not one per user. Every
   # user's per-project databases are logical databases/schemas created inside
   # these (see provisioning.py). This is how 1000 users x 10 dbs = 10,000
   # databases is served by a handful of processes.

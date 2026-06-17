@@ -137,7 +137,7 @@ async def raw_file(full_path: str):
 
     The URL path mirrors the file path, so an HTML page served here can use
     ordinary relative links (``style.css``, ``js/app.js``) and they resolve
-    correctly — which is what makes the static "Preview" of an index.html work
+    correctly, which is what makes the static "Preview" of an index.html work
     without running a server.
     """
     target = safe_join(full_path)
