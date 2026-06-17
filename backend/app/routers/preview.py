@@ -128,7 +128,9 @@ async def listening_ports():
     reserved = _reserved()
     from_proc = _listening_ports_from_proc()
     if from_proc is not None:
-        ports = [p for p in from_proc if p not in reserved and 1024 <= p <= 65535]
+        # Cap below the ephemeral range (32768+) so we report dev-server ports,
+        # not the random high ports of unrelated local processes.
+        ports = [p for p in from_proc if p not in reserved and 1024 <= p < 10000]
         return {"ports": ports}
 
     candidates = [p for p in _SCAN_PORTS if p not in reserved]
@@ -183,6 +185,26 @@ def _client_shim(prefix: str) -> bytes:
         b"try{arguments[1]=fix(u);}catch(e){}return oo.apply(this,arguments);};"
         b"})();</script>"
     )
+
+
+# Absolute module specifiers inside served JavaScript: `from "/x"`, `import "/x"`,
+# `import("/x")`. Rewriting these lets a frontend work through the proxy even when
+# it was NOT started with a matching base path (e.g. a hand-run `npm run dev`).
+_JS_ABS_IMPORT_RE = re.compile(rb'((?:\bfrom|\bimport)\b\s*\(?\s*)(["\'])(/[^"\'\n]*)')
+
+
+def _prefix_repl(prefix_slash: bytes):
+    def repl(m: re.Match[bytes]) -> bytes:
+        head, quote, path = m.group(1), m.group(2), m.group(3)
+        # Skip protocol-relative and already-prefixed paths (no double-prefix).
+        if path.startswith(b"//") or path.startswith(prefix_slash) or path + b"/" == prefix_slash:
+            return m.group(0)
+        return head + quote + prefix_slash[:-1] + path
+    return repl
+
+
+def _rewrite_js(body: bytes, prefix: str) -> bytes:
+    return _JS_ABS_IMPORT_RE.sub(_prefix_repl(prefix.encode() + b"/"), body)
 
 
 def _rewrite_html(body: bytes, prefix: str) -> bytes:
@@ -249,6 +271,8 @@ async def proxy(port: int, request: Request, path: str = ""):
         return Response(f"Preview proxy error: {e}", status_code=502)
 
     resp_headers = {k: v for k, v in upstream.headers.items() if k.lower() not in _DROP_RESP}
+    # Lets you confirm the new full-path proxy is deployed (curl -I the URL).
+    resp_headers["x-cloud-ide-preview"] = "full-path-v2"
 
     # Keep redirects inside the proxy (unless the app already emits the prefix).
     loc = upstream.headers.get("location")
@@ -257,17 +281,27 @@ async def proxy(port: int, request: Request, path: str = ""):
         resp_headers["location"] = f"{prefix}{loc}"
 
     ctype = upstream.headers.get("content-type", "")
+    lc = ctype.lower()
 
-    # HTML must be read fully so it can be rewritten (pages are small). Everything
-    # else (JS bundles, images, JSON, ...) is streamed so we never hold a whole
-    # response in memory.
-    if "text/html" in ctype.lower():
+    # HTML and JavaScript are read fully so absolute URLs can be rewritten (these
+    # are small in dev). Everything else (images, fonts, JSON, big bundles) is
+    # streamed so we never hold a whole response in memory.
+    if "text/html" in lc:
         try:
             raw = await upstream.aread()
         finally:
             await upstream.aclose()
         return Response(
             content=_rewrite_html(raw, prefix), status_code=upstream.status_code,
+            headers=resp_headers, media_type=ctype or None,
+        )
+    if "javascript" in lc or "ecmascript" in lc:
+        try:
+            raw = await upstream.aread()
+        finally:
+            await upstream.aclose()
+        return Response(
+            content=_rewrite_js(raw, prefix), status_code=upstream.status_code,
             headers=resp_headers, media_type=ctype or None,
         )
 

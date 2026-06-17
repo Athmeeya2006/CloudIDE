@@ -123,7 +123,13 @@ def detect_services(workspace: str) -> list[dict]:
         pass
 
     services: list[dict] = []
-    ports = {"backend": list(_BACKEND_PORTS), "frontend": list(_FRONTEND_PORTS)}
+    # Never assign a port the IDE itself uses (its backend port, or anything in
+    # RESERVED_PORTS such as the IDE frontend's dev port when running locally).
+    reserved = {settings.port, *settings.reserved_ports_list}
+    ports = {
+        "backend": [p for p in _BACKEND_PORTS if p not in reserved],
+        "frontend": [p for p in _FRONTEND_PORTS if p not in reserved],
+    }
     for directory, rel in search_dirs:
         for svc in _detect_in_dir(directory, rel):
             kind = svc.pop("kind", None)

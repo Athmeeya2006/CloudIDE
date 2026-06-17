@@ -30,9 +30,9 @@ export function PreviewPanel() {
   const activeUrl = previewUrl || (runningProcess ? previewProxyUrl(5173) : '');
 
   // When the preview points at a proxied port, wait for that dev server to come
-  // up before loading the iframe. While waiting, also scan for the app on other
-  // ports and switch to it automatically, so it works no matter which port the
-  // app actually chose (3000, 5000, 5173, ...).
+  // up before loading the iframe, instead of flashing a connection error while
+  // the install/build runs. It waits for the exact port you opened (Run Dev
+  // already targets the right one); use the radar button to find a different one.
   useEffect(() => {
     setError(false);
     const port = activeUrl ? portFromProxyUrl(activeUrl) : null;
@@ -49,11 +49,6 @@ export function PreviewPanel() {
         const { listening } = await previewApi.status(port);
         if (cancelled) return;
         if (listening) { setWaiting(false); return; }
-        // Target not up yet: is the app actually on a different port?
-        const { ports } = await previewApi.scan();
-        if (cancelled) return;
-        const other = ports.find(p => p !== port);
-        if (other) { setPreviewUrl(previewProxyUrl(other)); return; }
       } catch { /* keep trying */ }
       // A first-time install of a large app can take a while, so wait generously.
       if (Date.now() - start > 240000) { setWaiting(false); setError(true); return; }
@@ -61,7 +56,7 @@ export function PreviewPanel() {
     };
     poll();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [activeUrl, reloadKey, setPreviewUrl]);
+  }, [activeUrl, reloadKey]);
 
   // Scan for a running app and point the preview at it.
   const detect = async () => {

@@ -80,4 +80,9 @@ app.include_router(preview.status_router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "workspace": str(settings.workspace_path)}
+    # `preview` lets you confirm this build has the full-path preview proxy.
+    return {
+        "status": "ok",
+        "workspace": str(settings.workspace_path),
+        "preview": "full-path-v2",
+    }
