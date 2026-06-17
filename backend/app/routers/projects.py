@@ -124,6 +124,18 @@ async def project_services(project_id: str, user: dict = CurrentUser):
     return result
 
 
+class SaveServices(BaseModel):
+    services: list[dict]
+
+
+@router.post("/{project_id}/services")
+async def save_services(project_id: str, body: SaveServices, user: dict = CurrentUser):
+    """Write the given services to the project's ``cloudide.json``."""
+    project = _owned_project(project_id, user)
+    path = runner.save_config(project["workspace"], body.services)
+    return {"status": "saved", "path": path}
+
+
 @router.delete("/{project_id}")
 async def delete_project(project_id: str, user: dict = CurrentUser):
     _owned_project(project_id, user)

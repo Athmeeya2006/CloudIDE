@@ -8,7 +8,16 @@ from fastapi.responses import JSONResponse
 
 from app import metadata
 from app.config import settings
-from app.routers import auth, database, files, git, processes, projects, terminal
+from app.routers import (
+    auth,
+    database,
+    files,
+    git,
+    preview,
+    processes,
+    projects,
+    terminal,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,6 +73,7 @@ app.include_router(terminal.router)
 app.include_router(processes.router)
 app.include_router(database.router)
 app.include_router(git.router)
+app.include_router(preview.router)
 
 
 @app.get("/health")

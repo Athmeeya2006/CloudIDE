@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { RefreshCw, ExternalLink, X, Globe, AlertCircle } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
 import { useProcessStore } from '../../stores/processStore';
-import { rawFileUrl } from '../../api/client';
+import { rawFileUrl, previewProxyUrl } from '../../api/client';
 
 // Ports a user's app might serve on. 8000 is intentionally excluded: it is the
 // IDE's own backend API and cannot be reused by user apps.
@@ -23,9 +23,9 @@ export function PreviewPanel() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const runningProcess = processes.find(p => p.status === 'running');
-  // The address bar always shows the exact host being previewed; the port
-  // buttons switch it. Default to :5173 (common dev port), never 8000 (the IDE).
-  const activeUrl = previewUrl || (runningProcess ? `http://localhost:5173` : '');
+  // Previews go through the backend proxy (previewProxyUrl) so they work even
+  // when the IDE backend runs on a different machine than the browser.
+  const activeUrl = previewUrl || (runningProcess ? previewProxyUrl(5173) : '');
 
   const reload = () => {
     setError(false);
@@ -36,13 +36,19 @@ export function PreviewPanel() {
   const navigate = (url: string) => {
     setError(false);
     const v = url.trim();
-    // A workspace path (e.g. "default/index.html") is served as a static file;
-    // anything starting with http(s):// or "/" is used as-is (a running server).
-    if (v && !/^https?:\/\//i.test(v) && !v.startsWith('/')) {
-      setPreviewUrl(rawFileUrl(v));
-    } else {
-      setPreviewUrl(v);
+    // A bare port, ":port", or localhost:port routes through the backend proxy.
+    const portMatch = v.match(/^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)?:?(\d{2,5})\/?$/i);
+    if (portMatch) {
+      setPreviewUrl(previewProxyUrl(Number(portMatch[1])));
+      return;
     }
+    // An existing proxy/api path or a full external URL is used as-is.
+    if (/^https?:\/\//i.test(v) || v.startsWith('/')) {
+      setPreviewUrl(v);
+      return;
+    }
+    // Otherwise treat it as a workspace path served as a static file.
+    if (v) setPreviewUrl(rawFileUrl(v));
   };
 
   const openExternal = () => {
@@ -60,7 +66,7 @@ export function PreviewPanel() {
             value={customUrl || activeUrl}
             onChange={e => setCustomUrl(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && navigate(customUrl || activeUrl)}
-            placeholder="localhost:5000  or  default/index.html"
+            placeholder="5173  or  index.html"
             className="flex-1 bg-transparent text-ide-text text-[12px] outline-none placeholder:text-ide-text-dim"
           />
         </div>
@@ -79,12 +85,12 @@ export function PreviewPanel() {
       {/* Quick port links */}
       <div className="flex items-center gap-1 px-2 py-1 bg-[#1e1e1e] border-b border-ide-border overflow-x-auto shrink-0" style={{ scrollbarWidth: 'none' }}>
         {DEFAULT_PORTS.map(port => {
-          const url = `http://localhost:${port}`;
+          const url = previewProxyUrl(port);
           const isActive = activeUrl === url;
           return (
             <button
               key={port}
-              onClick={() => navigate(url)}
+              onClick={() => navigate(String(port))}
               title={PORT_LABELS[port]}
               className={`text-[11px] px-2 py-0.5 rounded shrink-0 transition-colors ${
                 isActive ? 'bg-ide-accent text-white' : 'text-ide-text-dim hover:text-ide-text hover:bg-ide-hover'
@@ -130,10 +136,10 @@ function NoPreview({ onOpen }: { onOpen: (url: string) => void }) {
         {[5173, 5000, 8080].map(port => (
           <button
             key={port}
-            onClick={() => onOpen(`http://localhost:${port}`)}
+            onClick={() => onOpen(String(port))}
             className="text-[12px] py-1.5 border border-ide-border hover:border-ide-accent text-ide-text transition-colors"
           >
-            Open localhost:{port}
+            Open port {port}
           </button>
         ))}
       </div>

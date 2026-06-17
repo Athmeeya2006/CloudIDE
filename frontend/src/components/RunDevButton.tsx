@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Play, ChevronDown, Loader2, Server } from 'lucide-react';
-import { projectApi } from '../api/client';
+import { Play, ChevronDown, Loader2, Server, Save } from 'lucide-react';
+import { projectApi, previewProxyUrl } from '../api/client';
 import { useProjectStore } from '../stores/projectStore';
 import { useProcessStore } from '../stores/processStore';
 import { useUIStore } from '../stores/uiStore';
@@ -56,7 +56,7 @@ export function RunDevButton() {
     try {
       await runCommand(svc.command, svc.run_cwd, svc.name);
       openBottom('logs');
-      if (svc.port) openPreview(`http://localhost:${svc.port}`);
+      if (svc.port) openPreview(previewProxyUrl(svc.port));
       notify(`Started ${svc.name}`, 'success');
     } catch (e) {
       notify(getErrorMessage(e, `Failed to start ${svc.name}`), 'error');
@@ -91,7 +91,7 @@ export function RunDevButton() {
         if (!previewPort && svc.port) previewPort = svc.port;
       }
       openBottom('logs');
-      if (previewPort) openPreview(`http://localhost:${previewPort}`);
+      if (previewPort) openPreview(previewProxyUrl(previewPort));
       notify(`Started ${list.length} service${list.length > 1 ? 's' : ''}`, 'success');
     } finally {
       setBusy(false);
@@ -102,6 +102,23 @@ export function RunDevButton() {
     const next = !open;
     setOpen(next);
     if (next && services.length === 0) await fetchServices();
+  };
+
+  // Pin the current (detected or edited) services into a cloudide.json so they
+  // become authoritative and the file shows up in the explorer.
+  const saveConfig = async () => {
+    if (!project || services.length === 0) return;
+    try {
+      await projectApi.saveServices(
+        project.id,
+        services.map(s => ({ name: s.name, command: s.command, cwd: s.cwd, port: s.port })),
+      );
+      setSource('config');
+      await useFileStore.getState().refreshTree();
+      notify('Saved cloudide.json', 'success');
+    } catch (e) {
+      notify(getErrorMessage(e, 'Could not save config'), 'error');
+    }
   };
 
   if (!project) return null;
@@ -170,14 +187,23 @@ export function RunDevButton() {
                   </div>
                 </div>
               ))}
-              <button
-                onClick={startAll}
-                disabled={busy}
-                className="w-full px-3 py-2 text-[12px] text-ide-accent hover:bg-ide-hover flex items-center justify-center gap-1.5"
-              >
-                {busy ? <Loader2 size={12} className="animate-spin" /> : <Play size={11} fill="currentColor" />}
-                Start all
-              </button>
+              <div className="flex border-t border-ide-border">
+                <button
+                  onClick={startAll}
+                  disabled={busy}
+                  className="flex-1 px-3 py-2 text-[12px] text-ide-accent hover:bg-ide-hover flex items-center justify-center gap-1.5 border-r border-ide-border"
+                >
+                  {busy ? <Loader2 size={12} className="animate-spin" /> : <Play size={11} fill="currentColor" />}
+                  Start all
+                </button>
+                <button
+                  onClick={saveConfig}
+                  title="Write these services to cloudide.json"
+                  className="flex-1 px-3 py-2 text-[12px] text-ide-text-muted hover:bg-ide-hover hover:text-ide-text flex items-center justify-center gap-1.5"
+                >
+                  <Save size={11} /> Save as config
+                </button>
+              </div>
             </div>
           )}
         </div>

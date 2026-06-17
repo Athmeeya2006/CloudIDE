@@ -68,7 +68,7 @@ graph TD
 * **Unified database viewer**: list tables (or Mongo collections), inspect schema, browse rows with pagination, and run read-only queries, with the same interface for every engine.
 * **Live preview with CRUD**: run your app, open it in the Live Preview, and creating or deleting records through its UI updates the rows shown in the Database Viewer. The provisioned database connection string is available to your app through `DATABASE_URL`.
 
-> **Ports:** the IDE backend uses port `8000` and the IDE frontend uses `3000`, so do not run your own apps on those. Use ports such as `5173` (Vite/React), `5000`, `5001`-`5010`, or `8080`; these are published from the app container in `docker-compose.yml`. Bind your app to `0.0.0.0` (for example `uvicorn ... --host 0.0.0.0`, `vite --host`) so the preview can reach it.
+> **Ports and preview:** the IDE backend uses port `8000` and the IDE frontend uses `3000`, so do not run your own apps on those. Use ports such as `5173` (Vite/React), `5000`, `5001`-`5010`, or `8080`. Bind your app to `0.0.0.0` (for example `uvicorn ... --host 0.0.0.0`, `vite --host`). The Live Preview reaches your app through a backend proxy (`/api/preview/<port>/`), so it works even when the IDE runs on a different machine than your browser. WebSockets are not proxied, so dev-server hot reload does not push updates; use the reload button. Apps that build absolute URLs in JavaScript should use relative URLs, or set the dev server's base path to `/api/preview/<port>/`.
 
 Implementation lives in `backend/app/metadata.py` (users, projects, and their databases), `backend/app/provisioning.py` (creating and tearing down databases and roles), and `backend/app/db_inspect.py` (read-only browsing across all engines).
 
@@ -132,8 +132,13 @@ It decides what to run in one of two ways:
   `cwd` is relative to the project root, and `port` is the port the Preview opens.
 * **Auto-detection** when there is no config. The IDE scans the project root and
   its immediate subfolders for `package.json` (runs `npm run dev`/`npm start`),
-  `manage.py` (Django), and `main.py`/`app.py` (FastAPI via uvicorn, Flask, or a
-  plain script), assigning non-conflicting ports.
+  Node entry files (`server.js`, `index.js`), `manage.py` (Django), and common
+  Python entrypoints (`main.py`, `app.py`, `server.py`, `run.py`, or a lone
+  `.py` file), assigning non-conflicting ports. If nothing is detected, Run Dev
+  runs the file currently open in the editor.
+
+Use **Save as config** in the Run Dev dropdown to write the current services to
+`cloudide.json` so they become fixed and editable.
 
 ### Full-stack, end to end (manual)
 1. Terminal 1: start the backend on `0.0.0.0:5000`.

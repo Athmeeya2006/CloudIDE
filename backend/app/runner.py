@@ -48,6 +48,29 @@ def get_services(workspace: str) -> dict:
     return {"services": detect_services(workspace), "source": "detected"}
 
 
+def save_config(workspace: str, services: list[dict]) -> str:
+    """Write ``services`` to the project's ``cloudide.json`` and return its path."""
+    clean = []
+    for s in services:
+        if not isinstance(s, dict) or not str(s.get("command", "")).strip():
+            continue
+        entry = {
+            "name": str(s.get("name") or "service"),
+            "command": str(s["command"]).strip(),
+            "cwd": str(s.get("cwd") or "").strip("/"),
+        }
+        if isinstance(s.get("port"), int):
+            entry["port"] = s["port"]
+        clean.append(entry)
+
+    path = safe_join(workspace, CONFIG_NAME)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"services": clean}, indent=2) + "\n", encoding="utf-8"
+    )
+    return f"{workspace}/{CONFIG_NAME}"
+
+
 def _read_config(workspace: str) -> list[dict] | None:
     path = safe_join(workspace, CONFIG_NAME)
     if not path.is_file():

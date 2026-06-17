@@ -24,6 +24,13 @@ export function rawFileUrl(path: string): string {
   return `${BASE}/api/files/raw/${encoded}`;
 }
 
+/** URL that proxies the user's app running on `port` of the backend host.
+ *  This is what makes the Live Preview work even when the IDE backend runs on a
+ *  different machine than the browser (the iframe cannot reach `localhost`). */
+export function previewProxyUrl(port: number): string {
+  return `${BASE}/api/preview/${port}/`;
+}
+
 export const api = axios.create({
   baseURL: BASE,
   timeout: 30000,
@@ -84,6 +91,8 @@ export const projectApi = {
   engines: () => api.get('/api/projects/engines').then(r => r.data),
   services: (id: string) =>
     api.get(`/api/projects/${id}/services`).then(r => r.data),
+  saveServices: (id: string, services: unknown[]) =>
+    api.post(`/api/projects/${id}/services`, { services }).then(r => r.data),
   databases: (id: string) =>
     api.get(`/api/projects/${id}/databases`).then(r => r.data),
   addDatabase: (id: string, engine: string) =>
