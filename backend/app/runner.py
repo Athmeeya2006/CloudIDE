@@ -99,10 +99,20 @@ def detect_services(workspace: str) -> list[dict]:
     return services
 
 
+# Python entrypoints we recognise, in priority order.
+_PY_ENTRYPOINTS = (
+    "main.py", "app.py", "server.py", "run.py",
+    "manage.py", "wsgi.py", "asgi.py", "application.py",
+)
+# Node entrypoints to run directly when there is no package.json dev script.
+_NODE_ENTRYPOINTS = ("server.js", "index.js", "app.js", "server.mjs", "index.mjs")
+
+
 def _detect_in_dir(d: Path, rel: str) -> list[dict]:
     out: list[dict] = []
     label = rel or "app"
 
+    # --- Node / frontend ---
     pkg = d / "package.json"
     if pkg.is_file():
         cmd = _node_command(pkg)
@@ -114,28 +124,54 @@ def _detect_in_dir(d: Path, rel: str) -> list[dict]:
                 "port": _FRONTEND_PORT,
                 "kind": "frontend",
             })
-
-    if (d / "manage.py").is_file():
-        out.append({
-            "name": f"{label}-django",
-            "command": "python manage.py runserver 0.0.0.0:{port}",
-            "cwd": rel,
-            "kind": "backend",
-        })
     else:
-        for fname, module in (("main.py", "main"), ("app.py", "app")):
-            if (d / fname).is_file():
-                command, kind = _python_command(d / fname, module)
+        for entry in _NODE_ENTRYPOINTS:
+            if (d / entry).is_file():
                 out.append({
-                    "name": rel or "backend",
-                    "command": command,
+                    "name": f"{label}-node",
+                    # Many Node apps read PORT from the environment.
+                    "command": f"PORT={{port}} node {entry}",
                     "cwd": rel,
-                    "kind": kind,
-                    "port": None,
+                    "kind": "backend",
                 })
                 break
 
+    # --- Python ---
+    py = _find_python_entry(d)
+    if py:
+        if py.name == "manage.py":
+            out.append({
+                "name": f"{label}-django",
+                "command": "python manage.py runserver 0.0.0.0:{port}",
+                "cwd": rel,
+                "kind": "backend",
+            })
+        else:
+            module = py.stem
+            command, kind = _python_command(py, module)
+            out.append({
+                "name": rel or "backend",
+                "command": command,
+                "cwd": rel,
+                "kind": kind,
+                "port": None,
+            })
+
     return out
+
+
+def _find_python_entry(d: Path) -> Path | None:
+    for name in _PY_ENTRYPOINTS:
+        if (d / name).is_file():
+            return d / name
+    # Fall back to a lone .py file at this level (a simple script project).
+    try:
+        py_files = [p for p in d.iterdir() if p.is_file() and p.suffix == ".py"]
+    except OSError:
+        py_files = []
+    if len(py_files) == 1:
+        return py_files[0]
+    return None
 
 
 def _node_command(pkg: Path) -> str | None:

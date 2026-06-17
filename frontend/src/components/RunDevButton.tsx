@@ -4,6 +4,8 @@ import { projectApi } from '../api/client';
 import { useProjectStore } from '../stores/projectStore';
 import { useProcessStore } from '../stores/processStore';
 import { useUIStore } from '../stores/uiStore';
+import { useFileStore } from '../stores/fileStore';
+import { buildRunCommand } from './Editor/runConfig';
 import { RunService } from '../types';
 import { getErrorMessage } from '../utils';
 
@@ -16,7 +18,7 @@ import { getErrorMessage } from '../utils';
 export function RunDevButton() {
   const project = useProjectStore(s => s.current);
   const runCommand = useProcessStore(s => s.runCommand);
-  const { openBottom, openPreview, notify } = useUIStore();
+  const { openBottom, openPreview, notify, runInTerminal } = useUIStore();
 
   const [open, setOpen] = useState(false);
   const [services, setServices] = useState<RunService[]>([]);
@@ -61,12 +63,25 @@ export function RunDevButton() {
     }
   };
 
+  // When no services are configured/detected, fall back to running the file
+  // that's currently open in the editor, just like the green Run button.
+  const runActiveFileFallback = (): boolean => {
+    const { activeTabPath, workspace } = useFileStore.getState();
+    if (!activeTabPath) return false;
+    const rc = buildRunCommand(activeTabPath, workspace);
+    if (!rc) return false;
+    runInTerminal(rc.command);
+    notify(`No services configured; running ${activeTabPath.split('/').pop()}`, 'info');
+    return true;
+  };
+
   const startAll = async () => {
     setBusy(true);
     try {
       const list = services.length ? services : await fetchServices();
       if (list.length === 0) {
-        notify('No runnable services found. Add a cloudide.json to define them.', 'error');
+        if (runActiveFileFallback()) return;
+        notify('Nothing to run. Open a file, or add a cloudide.json to define services.', 'error');
         setOpen(true);
         return;
       }
@@ -127,8 +142,9 @@ export function RunDevButton() {
             </div>
           ) : services.length === 0 ? (
             <div className="px-3 py-3 text-[12px] text-ide-text-muted">
-              No services found. Add a <code className="text-ide-yellow">cloudide.json</code> with a
-              <code className="text-ide-yellow"> services</code> array to define them.
+              No servers detected. Run Dev will run the file you have open. To run
+              multiple servers, add a <code className="text-ide-yellow">cloudide.json</code> with a
+              <code className="text-ide-yellow"> services</code> array.
             </div>
           ) : (
             <div className="max-h-72 overflow-y-auto">
